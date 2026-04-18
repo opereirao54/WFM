@@ -404,6 +404,20 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 .tab-panel{display:none}
 .tab-panel.active{display:flex;flex-direction:column;gap:20px}
 
+/* ── Simulador: navegação de views dentro do #main ─────────── */
+.view-tabs{
+  display:flex;gap:2px;padding:0 16px;border-bottom:1px solid var(--border);
+  background:var(--surface);position:sticky;top:0;z-index:5
+}
+.view-tab{
+  padding:10px 16px;border:none;background:transparent;
+  font-family:var(--sans);font-size:12px;font-weight:500;
+  color:var(--muted);cursor:pointer;transition:all .15s;
+  border-bottom:2px solid transparent
+}
+.view-tab.active{color:var(--accent);font-weight:600;border-bottom-color:var(--accent)}
+.view-tab:hover:not(.active){color:var(--text)}
+
 /* ── V5: Grupo de chips (dias da semana) ──────────────────── */
 .chip-group{
   display:flex;gap:4px;flex-wrap:wrap
@@ -706,7 +720,14 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
     <div class="loading-text" id="ltxt">Calculando Erlang C...</div>
     <div class="loading-sub" id="lsub">Aguarde</div>
   </div>
-  <div id="results"></div>
+  <div id="view-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
+    <div class="view-tabs">
+      <button class="view-tab active" id="vtab-res" onclick="switchView('res')">📊 Resultados</button>
+      <button class="view-tab" id="vtab-sim" onclick="switchView('sim')">🧪 Simulador</button>
+    </div>
+    <div id="results"></div>
+    <div id="simulator" style="display:none;padding:16px"></div>
+  </div>
 </main>
 
 <script>
@@ -877,6 +898,11 @@ function fmtI(n){return Number(n).toLocaleString('pt-BR')}
 const meses=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 function render(d){
+  document.getElementById('view-wrap').style.display='flex';
+  switchView('res');
+  // Limpa o simulador pra forçar re-render na próxima abertura com o novo resultado
+  document.getElementById('simulator').innerHTML='';
+  document.getElementById('simulator').dataset.loaded='';
   const el=document.getElementById('results');el.style.display='flex';el.innerHTML='';
   const k=d.kpis;const st=d.status;
   const slaOk=k.sla_ponderado_mes>=k.sla_target-0.005;
@@ -1286,6 +1312,216 @@ function renderCalendar(d) {
   }
   html += `</div></div></div>`;
   return html;
+}
+
+// ── View switcher (Resultados ↔ Simulador) ───────────────────────────
+window.switchView = function(which){
+  document.getElementById('vtab-res').classList.toggle('active', which==='res');
+  document.getElementById('vtab-sim').classList.toggle('active', which==='sim');
+  document.getElementById('results').style.display   = which==='res' ? 'flex' : 'none';
+  document.getElementById('simulator').style.display = which==='sim' ? 'block' : 'none';
+  if(which==='sim'){
+    const box = document.getElementById('simulator');
+    if(!box.dataset.loaded){ renderSimulador(box); box.dataset.loaded='1'; }
+  }
+};
+
+// ── Simulador (lazy — renderiza só quando a aba é aberta) ────────────
+function renderSimulador(box){
+  if(!lastResult){
+    box.innerHTML = `<div class="card"><div style="padding:24px;text-align:center;color:var(--dim)">
+      Calcule um dimensionamento primeiro para habilitar o simulador.</div></div>`;
+    return;
+  }
+  const hcBase = lastResult.hc_fisico?.total || 100;
+  box.innerHTML = `
+    <div class="card">
+      <div class="card-header"><div class="card-title">🧪 Simulador de Cenários</div></div>
+      <div style="padding:0 16px 16px">
+        <div style="font-size:11px;color:var(--dim);margin-bottom:14px">
+          Teste variações de volume/TMO (roda no backend) ou a inversão HC→SLA (roda local, instantâneo).
+          Não altera o resultado original da aba Resultados.
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação de Volume</label>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(${p},0)">${p>0?'+':''}${p}%</button>`).join('')}
+            </div>
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação de TMO</label>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(0,${p})">${p>0?'+':''}${p}%</button>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">HC → SLA (inversão local, Erlang C)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="number" id="sim-hc-inv" value="${hcBase}" min="1" max="9999" style="width:100px;font-size:13px;padding:4px 8px">
+            <button class="sim-btn" onclick="runSimInverso()" style="border-color:var(--accent);color:var(--accent)">Calcular SLA com este HC</button>
+            <span style="font-size:11px;color:var(--dim)">HC base: ${hcBase}</span>
+          </div>
+        </div>
+
+        <div id="sim-result" style="font-size:12px;color:var(--muted);min-height:60px">
+          <div style="padding:14px;background:var(--surface2);border-radius:8px;text-align:center">
+            Clique em uma variação ou em "Calcular SLA" para ver o impacto.
+          </div>
+        </div>
+      </div>
+    </div>
+    <style>
+      .sim-btn{font-size:12px;padding:5px 10px;border-radius:4px;border:1px solid var(--border);
+        cursor:pointer;background:var(--surface2);color:var(--muted);font-family:var(--sans)}
+      .sim-btn:hover{background:var(--surface);color:var(--text)}
+    </style>`;
+}
+
+window.runSimDelta = async function(volDelta, tmoDelta){
+  const resel = document.getElementById('sim-result');
+  resel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted)">Calculando...</div>';
+  try{
+    const fd = new FormData();
+    const baseVol = parseInt(v('volume_mes'))||150000;
+    const baseTmo = parseFloat(v('tmo_base'))||240;
+    const newVol = Math.round(baseVol*(1+volDelta/100));
+    const newTmo = Math.round(baseTmo*(1+tmoDelta/100));
+    const fields = {
+      volume_mes:newVol, tmo_base:newTmo,
+      sla_target:parseInt(v('sla_target'))/100, tempo_target:v('tempo_target'),
+      mes:v('mes'), ano:v('ano'), sla_mode:slaMode,
+      interval_floor_pct:parseInt(v('interval_floor_pct'))/100,
+      max_overstaffing:parseInt(v('max_overstaffing'))/100,
+      max_horarios_entrada:v('max_horarios_entrada'), solver_mode:solverMode,
+      erlang_mode:erlangMode, patience_time:parseInt(v('patience_time'))||120,
+      absenteismo:parseInt(v('absenteismo'))/100, ferias:parseInt(v('ferias'))/100,
+      treinamento:parseInt(v('treinamento'))/100, reunioes:parseInt(v('reunioes'))/100,
+      aderencia:parseInt(v('aderencia'))/100, outras:parseInt(v('outras'))/100,
+      vol_sabado_pct:parseInt(v('vol_sabado_pct'))/100,
+      vol_domingo_pct:parseInt(v('vol_domingo_pct'))/100,
+      horario_abertura:v('horario_abertura').trim(),
+      horario_fechamento:v('horario_fechamento').trim(),
+      janela_entrada_inicio:v('janela_entrada_inicio').trim(),
+      janela_entrada_fim:v('janela_entrada_fim').trim(),
+      min_agentes:parseInt(v('min_agentes'))||0,
+      dias_funcionamento:getActiveDays().join(','),
+    };
+    Object.entries(fields).forEach(([k,val])=>fd.append(k,val));
+    if(uploadedFile) fd.append('curvas_excel', uploadedFile);
+    const resp = await fetch('/calcular',{method:'POST',body:fd});
+    const data = await resp.json();
+    if(data.erro){ resel.innerHTML=`<div style="color:var(--red);padding:14px">Erro: ${data.erro}</div>`; return; }
+    const sla = fmt(data.kpis.sla_ponderado_mes*100);
+    const hc  = data.hc_fisico.total;
+    const tme = fmt(data.dias[0]?.tme_medio||0);
+    const diff = hc - (lastResult.hc_fisico?.total||0);
+    const diffStr = diff>0?`<span style="color:var(--red)">+${diff}</span>`:diff<0?`<span style="color:var(--green)">${diff}</span>`:`<span>0</span>`;
+    const slaCor = data.kpis.sla_ponderado_mes>=data.kpis.sla_target?'var(--green)':'var(--red)';
+    resel.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:var(--dim)">Cenário</div>
+          <div style="font-size:13px;font-weight:600;color:var(--accent);margin-top:2px">Vol ${volDelta>0?'+':''}${volDelta}% · TMO ${tmoDelta>0?'+':''}${tmoDelta}%</div>
+          <div style="font-size:10px;color:var(--dim);margin-top:2px">${fmtI(newVol)} lig · ${newTmo}s</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:var(--dim)">SLA Mensal</div>
+          <div style="font-size:22px;font-weight:700;color:${slaCor}">${sla}%</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:var(--dim)">HC Total</div>
+          <div style="font-size:22px;font-weight:700;color:var(--accent)">${hc} ${diffStr}</div>
+        </div>
+        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
+          <div style="font-size:10px;color:var(--dim)">TME Médio</div>
+          <div style="font-size:22px;font-weight:700">${tme}s</div>
+        </div>
+      </div>`;
+  }catch(e){
+    resel.innerHTML = `<div style="color:var(--red);padding:14px">Erro: ${e.message}</div>`;
+  }
+};
+
+window.runSimInverso = function(){
+  const hcDisp = parseInt(document.getElementById('sim-hc-inv').value)||0;
+  const resel = document.getElementById('sim-result');
+  if(!lastResult||!lastResult.dias||!lastResult.dias.length){
+    resel.innerHTML='<div style="padding:14px">Calcule primeiro.</div>'; return;
+  }
+  const diaUtil = lastResult.dias.find(d=>d.tipo==='Util');
+  if(!diaUtil){ resel.innerHTML='<div style="padding:14px">Sem dia útil no resultado.</div>'; return; }
+
+  const hcBase = lastResult.hc_fisico.total||1;
+  const ratio = hcDisp / hcBase;
+  const tTarget  = parseFloat(v('tempo_target'))||20;
+  const slaTarget = (parseInt(v('sla_target'))||80)/100;
+  let numSLA=0,denSLA=0,numTME=0,denTME=0,ivAbaixo=0,ivTotal=0;
+
+  diaUtil.intervalos.forEach(iv=>{
+    const vol=iv.volume||0; if(vol<0.01) return;
+    const tmo=iv.tmo||1;
+    const u=iv.trafico_erl||0;
+    const covNew=Math.max(0,(iv.hc_bruto||0)*ratio);
+    const m=Math.max(0,Math.ceil(covNew));
+    if(m<=0){ivTotal++;ivAbaixo++;return;}
+    const sla=jsCalcSLA(m,u,tTarget,tmo);
+    numSLA+=vol*sla; denSLA+=vol;
+    numTME+=vol*jsTME(m,u,tmo); denTME+=vol;
+    ivTotal++;
+    if(sla<slaTarget) ivAbaixo++;
+  });
+
+  const slaEst=(denSLA>0?numSLA/denSLA:0)*100;
+  const tmeEst=denTME>0?numTME/denTME:0;
+  const floorPct=ivTotal>0?(ivTotal-ivAbaixo)/ivTotal*100:0;
+  const cor=slaEst>=slaTarget*100?'var(--green)':'var(--red)';
+  const diff = hcDisp - hcBase;
+  const diffStr = diff>0?`<span style="color:var(--green)">+${diff}</span>`:diff<0?`<span style="color:var(--red)">${diff}</span>`:`<span>0</span>`;
+  resel.innerHTML = `
+    <div style="background:var(--surface2);border-radius:8px;padding:14px">
+      <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
+        Com <b>${hcDisp}</b> HC físicos ${diffStr} vs base · estimativa por escala proporcional da cobertura do dia útil.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--dim)">SLA estimado</div>
+          <div style="font-size:22px;font-weight:700;color:${cor}">${fmt(slaEst)}%</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--dim)">TME médio</div>
+          <div style="font-size:22px;font-weight:700">${fmt(tmeEst)}s</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:10px;color:var(--dim)">% intervalos OK</div>
+          <div style="font-size:22px;font-weight:700">${fmt(floorPct)}%</div>
+        </div>
+      </div>
+    </div>`;
+};
+
+// ── JS Erlang C (para inversão client-side) ───────────────────────────
+function jsErlangC(m,u){
+  if(u<=0)return 0;if(m<=u)return 1;
+  let logAmm=m*Math.log(u)-[...Array(m)].reduce((s,_,k)=>s+Math.log(k+1),0);
+  let logNum=logAmm-Math.log(1-u/m);
+  let logAk=0,logTerms=[0];
+  for(let k=1;k<m;k++){logAk+=Math.log(u)-Math.log(k);logTerms.push(logAk);}
+  const base=Math.max(...logTerms,logNum);
+  const partial=logTerms.reduce((s,lt)=>s+Math.exp(lt-base),0);
+  const numNorm=Math.exp(logNum-base);
+  return Math.min(numNorm/(partial+numNorm),1);
+}
+function jsCalcSLA(m,u,t,tmo){
+  if(u<=0)return 1;if(m<=0||m<=u)return 0;
+  return Math.max(0,Math.min(1,1-jsErlangC(m,u)*Math.exp((u-m)*(t/tmo))));
+}
+function jsTME(m,u,tmo){
+  if(u<=0)return 0;if(m<=u)return 9999;
+  const ec=jsErlangC(m,u);const d=m-u;return d>0?(ec*tmo)/d:9999;
 }
 
 async function exportar(){
