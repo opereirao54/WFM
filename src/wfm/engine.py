@@ -61,10 +61,11 @@ def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
         m_line = max(1, math.ceil(cov30)) if cov30 > 0 else 0
 
         # HC bruto = físico escalado (antes do NR-17); HC líq = após NR-17
+        # Média dos 3 slots de 10min, 2 decimais (sem ceil) — reflete transições dentro do bloco de 30min.
         cov_phys30 = float(cov_phys_10m[i0:i0+3].mean()) if cov_phys_10m is not None else cov30
         cov_nr17_30 = float(cov_nr17_10m[i0:i0+3].mean()) if cov_nr17_10m is not None else cov30
-        hc_bruto_iv = int(math.ceil(cov_phys30)) if cov_phys30 > 0 else 0
-        hc_liq_iv   = int(math.ceil(cov_nr17_30)) if cov_nr17_30 > 0 else 0
+        hc_bruto_iv = round(cov_phys30, 2)
+        hc_liq_iv   = round(cov_nr17_30, 2)
 
         pw   = erlang_c(m_line, u_avg) if m_line > 0 else 0.0
         sla  = calc_sla_auto(m_line, u_avg, t_target, tmo30, erlang_mode, patience) \
@@ -315,6 +316,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
 
     all_sla_num = all_vol = all_ns = 0.0
     all_iv_ok = all_iv_tot = 0
+    peak_req_by_data: Dict[str, float] = {}
 
     for dia in dias:
         vol_dia  = volume_from_peso(dia.peso_pct, inp.volume_mes)
@@ -331,6 +333,12 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             cov_phys_10m=cov_phys_10m, cov_nr17_10m=cov_nr17_10m,
         )
 
+        # Pico Erlang (HC líq. requerido) p/ cálculo de overstaffing
+        hc_req_curve, _, _ = erlang_curve_day(
+            vol_10m, tmo_10m, inp.tempo_target, inp.sla_target, 0, emode, patience
+        )
+        peak_req_by_data[dia.data] = float(hc_req_curve.max())
+
         vol_total = sum(iv.volume for iv in intervalos)
         ns_total  = sum(iv.ns     for iv in intervalos)
         sla_pond  = sum(iv.volume * iv.sla_pct for iv in intervalos) / (vol_total + 1e-9)
@@ -338,8 +346,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         occ_med   = sum(iv.volume * iv.ocupacao  for iv in intervalos) / (vol_total + 1e-9)
         fila_med  = sum(iv.volume * iv.fila_pw   for iv in intervalos) / (vol_total + 1e-9)
         tmo_med   = sum(iv.volume * iv.tmo       for iv in intervalos) / (vol_total + 1e-9)
-        hc_liq_max   = max((iv.hc_liq   for iv in intervalos), default=0)
-        hc_bruto_max = int(max((iv.hc_bruto for iv in intervalos), default=0))
+        hc_liq_max   = round(max((iv.hc_liq   for iv in intervalos), default=0.0), 2)
+        hc_bruto_max = round(max((iv.hc_bruto for iv in intervalos), default=0.0), 2)
         ok_count  = sum(1 for iv in intervalos if iv.sla_pct >= inp.sla_target)
 
         all_sla_num += vol_total * sla_pond
@@ -370,7 +378,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         if not typed: return 0.0
         ratios, vols = [], []
         for _d in typed:
-            peak_req = max((iv.hc_liq for iv in _d.intervalos), default=0)
+            peak_req = peak_req_by_data.get(_d.data, 0.0)
             if peak_req > 0:
                 ratios.append(float(cov_curve.max()) / peak_req)
                 vols.append(_d.volume_total)

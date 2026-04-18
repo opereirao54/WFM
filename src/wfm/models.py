@@ -92,7 +92,7 @@ class IntervaloOut:
     horario:      str
     volume:       float
     tmo:          float
-    hc_liq:       int
+    hc_liq:       float
     hc_bruto:     float
     trafico_erl:  float
     fila_pw:      float
@@ -110,7 +110,7 @@ class DiaOut:
     peso_pct:          float
     volume_total:      float
     tmo_medio:         float
-    hc_liq_max:        int
+    hc_liq_max:        float
     hc_bruto_max:      float
     sla_ponderado:     float
     ns_total:          float
