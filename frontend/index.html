@@ -991,6 +991,11 @@ function render(d){
       <div class="kpi-val">${d.hc_fisico.total}</div>
       <div class="kpi-sub">Líq. ref: ${d.hc_liquido_ref?.total||'—'}</div>
     </div>
+    <div class="kpi blue">
+      <div class="kpi-lbl">Pausa NR-17</div>
+      <div class="kpi-val">${fmt((d.pausa_nr17_pct||0)*100)}%</div>
+      <div class="kpi-sub">ponderada por HC · 6:20=10,5% · 8:12=16,3%</div>
+    </div>
   </div>`;
 
   // Pools
@@ -1256,47 +1261,32 @@ function renderEscala(el, d) {
 
   el.innerHTML += gantt;
 
-  // tabela de turnos consolidada por (tipo, entrada)
-  const grupos = {};
-  turnos.forEach(t=>{
-    const key = `${t.tipo}|${t.entrada}|${t.saida}`;
-    if(!grupos[key]) grupos[key] = {tipo:t.tipo, entrada:t.entrada, saida:t.saida,
-                                    pools:new Set(), bruto:0, liq:0};
-    grupos[key].pools.add(t.pool);
-    grupos[key].bruto += t.agentes_bruto;
-    grupos[key].liq   += t.agentes_liq;
-  });
-  const linhas = Object.values(grupos).sort((a,b)=>
-    a.tipo.localeCompare(b.tipo) || a.entrada.localeCompare(b.entrada));
-  const totalBruto = linhas.reduce((s,l)=>s+l.bruto,0);
-  const totalLiq   = linhas.reduce((s,l)=>s+l.liq,0);
+  // tabela de turnos (uma linha por registro)
+  const totalBruto = turnos.reduce((s,t)=>s+t.agentes_bruto,0);
+  const totalLiq   = turnos.reduce((s,t)=>s+t.agentes_liq,0);
 
   el.innerHTML+=`<div class="card" style="margin-top:10px">
     <div class="card-header">
       <div class="card-title">Detalhe dos Turnos</div>
-      <div style="font-size:11px;color:var(--dim)">${linhas.length} combinações · ${turnos.length} registros</div>
+      <div style="font-size:11px;color:var(--dim)">${turnos.length} registros</div>
     </div>
     <div class="tbl-wrap"><table class="mt"><thead><tr>
-      <th style="text-align:left">Cobertura</th>
-      <th style="text-align:left">Carga</th>
+      <th style="text-align:left">Pool</th>
+      <th style="text-align:left">Tipo</th>
       <th style="text-align:left">Entrada</th>
       <th style="text-align:left">Saída</th>
       <th>HC Bruto</th>
       <th>HC Líq.</th>
     </tr></thead><tbody>
-    ${linhas.map(l=>{
-      const poolsArr = Array.from(l.pools);
-      const badges = poolsArr.map(p=>{
-        const c=poolColor[p]||poolColor.pool_812;
-        return `<span style="font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;background:${c.bg};color:${c.text};border:1px solid ${c.border};margin-right:3px">${(poolLabel[p]||p)}</span>`;
-      }).join('');
+    ${turnos.map(t=>{
+      const c=poolColor[t.pool]||poolColor.pool_812;
       return `<tr>
-        <td>${badges}</td>
-        <td style="font-family:var(--mono)">${l.tipo}</td>
-        <td style="font-family:var(--mono)">${l.entrada}</td>
-        <td style="font-family:var(--mono)">${l.saida}</td>
-        <td style="color:var(--accent);font-weight:600">${l.bruto}</td>
-        <td style="color:var(--muted)">${l.liq.toFixed(1)}</td>
+        <td><span style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;background:${c.bg};color:${c.text};border:1px solid ${c.border}">${(poolLabel[t.pool]||t.pool)}</span></td>
+        <td style="font-family:var(--mono)">${t.tipo}</td>
+        <td style="font-family:var(--mono)">${t.entrada}</td>
+        <td style="font-family:var(--mono)">${t.saida}</td>
+        <td style="color:var(--accent);font-weight:600">${t.agentes_bruto}</td>
+        <td style="color:var(--muted)">${t.agentes_liq}</td>
       </tr>`;
     }).join('')}
     </tbody><tfoot><tr style="border-top:2px solid var(--border)">

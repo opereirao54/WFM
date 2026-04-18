@@ -156,6 +156,9 @@ class WFMOutput:
     elapsed_sec:          float = 0.0
     horario_abertura:     str   = ""
     horario_fechamento:   str   = ""
+    # Pausa média ponderada entre os turnos (6:20 ~10.5%, 8:12 ~16.3%).
+    # Ponderada pelo nº de HC físico em cada pool.
+    pausa_nr17_pct:       float = 0.0
     # Curvas intraday (144 slots de 10min) por tipo de dia, para gráfico demanda×escala.
     demanda_curves:       Dict[str, List[float]] = field(default_factory=dict)
     cobertura_curves:     Dict[str, List[float]] = field(default_factory=dict)

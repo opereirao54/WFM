@@ -79,7 +79,7 @@ def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
             volume      = round(vol30, 1),
             tmo         = round(tmo30, 1),
             hc_liq      = hc_liq_slot,
-            hc_bruto    = round(cov30, 2),
+            hc_bruto    = int(math.ceil(cov30)) if cov30 > 0 else 0,
             trafico_erl = round(u_avg, 3),
             fila_pw     = round(pw, 4),
             tme_seg     = round(tme, 2),
@@ -313,7 +313,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         fila_med  = sum(iv.volume * iv.fila_pw   for iv in intervalos) / (vol_total + 1e-9)
         tmo_med   = sum(iv.volume * iv.tmo       for iv in intervalos) / (vol_total + 1e-9)
         hc_liq_max   = max((iv.hc_liq   for iv in intervalos), default=0)
-        hc_bruto_max = max((iv.hc_bruto for iv in intervalos), default=0)
+        hc_bruto_max = int(max((iv.hc_bruto for iv in intervalos), default=0))
         ok_count  = sum(1 for iv in intervalos if iv.sla_pct >= inp.sla_target)
 
         all_sla_num += vol_total * sla_pond
@@ -326,7 +326,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             data=dia.data, dia_semana=_dow(dia.data), tipo=dia.tipo,
             peso_pct=dia.peso_pct, volume_total=round(vol_total,0),
             tmo_medio=round(tmo_med,1), hc_liq_max=hc_liq_max,
-            hc_bruto_max=round(hc_bruto_max,1),
+            hc_bruto_max=hc_bruto_max,
             sla_ponderado=round(sla_pond,4), ns_total=round(ns_total,0),
             tme_medio=round(tme_med,2), ocupacao_media=round(occ_med,4),
             fila_media=round(fila_med,4),
@@ -462,6 +462,11 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         elapsed_sec=time.time()-t0,
         horario_abertura=inp.horario_abertura or slot_to_time(first_slot_op),
         horario_fechamento=inp.horario_fechamento or slot_to_time(last_slot_close),
+        pausa_nr17_pct=round(
+            (((1.0 - pl_base["6:20"]) * (n_sab + n_dom)
+              + (1.0 - pl_base["8:12"]) * n_812)
+             / max(1, n_sab + n_dom + n_812)), 4
+        ),
         demanda_curves={
             "util":    [round(float(x), 2) for x in hc_util],
             "sabado":  [round(float(x), 2) for x in hc_sab],
