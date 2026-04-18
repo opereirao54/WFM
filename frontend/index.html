@@ -620,6 +620,23 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   </div>
 
   <div class="sec-group">
+    <div class="sec-label">Janela de Entrada Permitida</div>
+    <div class="time-range">
+      <div class="fld"><label>Entrada a partir de</label>
+        <input type="text" id="janela_entrada_inicio" placeholder="06:00">
+      </div>
+      <div class="sep">—</div>
+      <div class="fld"><label>Entrada até</label>
+        <input type="text" id="janela_entrada_fim" placeholder="17:40">
+      </div>
+    </div>
+    <div style="font-size:10px;color:var(--dim);line-height:1.6;margin-top:4px">
+      Restringe os horários em que os turnos podem começar. Deixe vazio para permitir entrada em qualquer horário.<br>
+      <b>Ex:</b> operação 24h com entradas só entre <b>06:00</b> e <b>17:40</b> — impede novos turnos iniciando na madrugada ou à noite.
+    </div>
+  </div>
+
+  <div class="sec-group">
     <div class="sec-label">Modo SLA</div>
     <div class="toggle-row">
       <button class="tb on" id="btn-w" onclick="setSlaMode('weighted')">Ponderado</button>
@@ -829,6 +846,8 @@ async function calcular(){
       vol_domingo_pct:parseInt(v('vol_domingo_pct'))/100,
       horario_abertura:v('horario_abertura').trim(),
       horario_fechamento:v('horario_fechamento').trim(),
+      janela_entrada_inicio:v('janela_entrada_inicio').trim(),
+      janela_entrada_fim:v('janela_entrada_fim').trim(),
       min_agentes:parseInt(v('min_agentes'))||0,
       // ── V5: dias de funcionamento ──
       dias_funcionamento: activeDays.join(','),
@@ -1206,43 +1225,6 @@ function renderEscala(el, d) {
   // ── Análises extras ────────────────────────────────────────────────
   // Calendário SLA
   el.innerHTML += renderCalendar(d);
-
-  // Cobertura vs Demanda (Chart.js — precisa de id no DOM)
-  el.innerHTML += `<div id="cov-wrap-${d.mes}${d.ano}"></div>`;
-  el.innerHTML += `<div id="sens-wrap-${d.mes}${d.ano}"></div>`;
-
-  // Aguarda o DOM renderizar antes de desenhar o chart
-  const baseParamsForSens = {
-    volume_mes:parseInt(document.getElementById('volume_mes')||{value:150000}).value||150000,
-    tmo_base:parseFloat(document.getElementById('tmo_base')||{value:240}).value||240,
-    sla_target:parseInt((document.getElementById('sla_target')||{value:80}).value||80)/100,
-    tempo_target:parseFloat((document.getElementById('tempo_target')||{value:20}).value||20),
-    mes:d.mes,ano:d.ano,sla_mode:slaMode,
-    interval_floor_pct:parseInt((document.getElementById('interval_floor_pct')||{value:85}).value||85)/100,
-    max_overstaffing:parseInt((document.getElementById('max_overstaffing')||{value:20}).value||20)/100,
-    max_horarios_entrada:parseInt((document.getElementById('max_horarios_entrada')||{value:6}).value||6),
-    solver_mode:solverMode,erlang_mode:erlangMode,
-    patience_time:parseInt((document.getElementById('patience_time')||{value:120}).value||120),
-    absenteismo:parseInt((document.getElementById('absenteismo')||{value:5}).value||5)/100,
-    ferias:parseInt((document.getElementById('ferias')||{value:0}).value||0)/100,
-    treinamento:parseInt((document.getElementById('treinamento')||{value:3}).value||3)/100,
-    reunioes:parseInt((document.getElementById('reunioes')||{value:0}).value||0)/100,
-    aderencia:parseInt((document.getElementById('aderencia')||{value:3}).value||3)/100,
-    outras:parseInt((document.getElementById('outras')||{value:0}).value||0)/100,
-    vol_sabado_pct:parseInt((document.getElementById('vol_sabado_pct')||{value:35}).value||35)/100,
-    vol_domingo_pct:parseInt((document.getElementById('vol_domingo_pct')||{value:15}).value||15)/100,
-    horario_abertura:(document.getElementById('horario_abertura')||{value:''}).value||'',
-    horario_fechamento:(document.getElementById('horario_fechamento')||{value:''}).value||'',
-    min_agentes:parseInt((document.getElementById('min_agentes')||{value:0}).value||0),
-    hc_total:d.hc_fisico.total,
-  };
-
-  requestAnimationFrame(()=>{
-    if(typeof Chart!=='undefined'){
-      renderCoverageChart(d, `cov-wrap-${d.mes}${d.ano}`);
-    }
-    renderSensibilidade(`sens-wrap-${d.mes}${d.ano}`, baseParamsForSens);
-  });
 }
 
 // ── Calendário SLA heatmap ───────────────────────────────────────────────
@@ -1306,244 +1288,6 @@ function renderCalendar(d) {
   return html;
 }
 
-// ── Gráfico Cobertura vs Demanda ─────────────────────────────────────────
-function renderCoverageChart(d, containerId) {
-  const tipos = ['Util','Sabado','Domingo'];
-  const labels=['Dia Útil','Sábado','Domingo'];
-  const colors=['#185FA5','#BA7517','#534AB7'];
-
-  // Coleta intervalos de cada tipo (pega o primeiro dia de cada tipo)
-  const byTipo={};
-  (d.dias||[]).forEach(dia=>{
-    if(!byTipo[dia.tipo]) byTipo[dia.tipo]=dia.intervalos;
-  });
-
-  let curTipo='Util';
-
-  const wrap = document.getElementById(containerId);
-  if(!wrap) return;
-
-  wrap.innerHTML = `
-    <div class="card" style="margin-top:10px">
-      <div class="card-header">
-        <div class="card-title">Cobertura vs Demanda Erlang — Intraday</div>
-        <div style="display:flex;gap:6px">
-          ${tipos.map((t,i)=>`<button onclick="switchCovType('${t}','${containerId}')" id="cov-btn-${t}" style="font-size:11px;padding:3px 10px;border-radius:4px;border:1px solid var(--border);cursor:pointer;background:${t==='Util'?'var(--accent)':'var(--surface2)'};color:${t==='Util'?'#fff':'var(--muted)'}">${labels[i]}</button>`).join('')}
-        </div>
-      </div>
-      <div style="padding:0 16px 16px">
-        <canvas id="cov-chart-${containerId}" height="220"></canvas>
-        <div id="cov-legend-${containerId}" style="margin-top:8px;display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:var(--muted)">
-          <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;height:3px;background:#185FA5"></span>HC necessário (Erlang)</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;height:3px;background:#1D9E75"></span>HC logado (cobertura)</span>
-          ${d.erlang_mode==='erlang_a'?`<span style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:12px;height:3px;background:#D85A30"></span>% Abandono estimado</span>`:''}
-        </div>
-      </div>
-    </div>`;
-
-  window._covData = byTipo;
-  window._covErlangMode = d.erlang_mode;
-  drawCovChart('Util', containerId);
-}
-
-window.switchCovType = function(tipo, containerId){
-  ['Util','Sabado','Domingo'].forEach(t=>{
-    const btn=document.getElementById('cov-btn-'+t);
-    if(btn){btn.style.background=t===tipo?'var(--accent)':'var(--surface2)';btn.style.color=t===tipo?'#fff':'var(--muted)';}
-  });
-  drawCovChart(tipo, containerId);
-};
-
-window.drawCovChart = function(tipo, containerId){
-  const ivs = (window._covData||{})[tipo]||[];
-  if(!ivs.length) return;
-
-  const ctx = document.getElementById('cov-chart-'+containerId);
-  if(!ctx) return;
-  if(ctx._chartInst) ctx._chartInst.destroy();
-
-  const labs = ivs.map(iv=>iv.horario);
-  const hcLiq = ivs.map(iv=>iv.hc_liq);
-  const hcBruto = ivs.map(iv=>parseFloat(iv.hc_bruto)||0);
-  const pAband = ivs.map(iv=>parseFloat(iv.p_abandon)||0);
-
-  const datasets=[
-    {label:'HC necessário (Erlang)',data:hcLiq,borderColor:'#185FA5',backgroundColor:'rgba(24,95,165,.1)',fill:true,tension:.3,pointRadius:0,borderWidth:2},
-    {label:'HC logado (cobertura)',data:hcBruto,borderColor:'#1D9E75',backgroundColor:'rgba(29,158,117,.08)',fill:false,tension:.3,pointRadius:0,borderWidth:2,borderDash:[4,2]},
-  ];
-  if(window._covErlangMode==='erlang_a'){
-    datasets.push({label:'Abandono (%)',data:pAband,borderColor:'#D85A30',backgroundColor:'transparent',fill:false,tension:.3,pointRadius:0,borderWidth:1.5,yAxisID:'y2'});
-  }
-
-  ctx._chartInst = new Chart(ctx,{
-    type:'line',
-    data:{labels:labs,datasets},
-    options:{
-      responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false}},
-      scales:{
-        x:{ticks:{font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:12},grid:{display:false}},
-        y:{beginAtZero:true,ticks:{font:{size:10}},title:{display:true,text:'Agentes',font:{size:10}}},
-        ...(window._covErlangMode==='erlang_a'?{y2:{type:'linear',position:'right',beginAtZero:true,max:100,ticks:{callback:v=>v+'%',font:{size:10}},grid:{display:false}}}:{}),
-      },
-    }
-  });
-};
-
-// ── Sensibilidade ────────────────────────────────────────────────────────
-function renderSensibilidade(containerId, baseParams){
-  const wrap=document.getElementById(containerId);
-  if(!wrap)return;
-  wrap.innerHTML=`<div class="card" style="margin-top:10px">
-    <div class="card-header"><div class="card-title">Análise de Sensibilidade</div></div>
-    <div style="padding:0 16px 16px">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
-        <div>
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Variação de Volume</label>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${[-20,-10,-5,0,5,10,20].map(p=>`<button onclick="runSens(${p},0,'${containerId}',${JSON.stringify(baseParams).replace(/"/g,'&quot;')})" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);cursor:pointer;background:${p===0?'var(--accent)':'var(--surface2)'};color:${p===0?'#fff':'var(--muted)'}">${p>0?'+':''}${p}%</button>`).join('')}
-          </div>
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Variação de TMO</label>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${[-20,-10,-5,0,5,10,20].map(p=>`<button onclick="runSens(0,${p},'${containerId}',${JSON.stringify(baseParams).replace(/"/g,'&quot;')})" style="font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);cursor:pointer;background:${p===0?'var(--accent)':'var(--surface2)'};color:${p===0?'#fff':'var(--muted)'}">${p>0?'+':''}${p}%</button>`).join('')}
-          </div>
-        </div>
-        <div>
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">HC → SLA (inversão)</label>
-          <div style="display:flex;gap:6px;align-items:center">
-            <input type="number" id="hc-inv-${containerId}" value="${baseParams.hc_total||100}" min="1" max="9999" style="width:80px;font-size:12px">
-            <button onclick="runInverso('${containerId}',${JSON.stringify(baseParams).replace(/"/g,'&quot;')})" style="font-size:11px;padding:4px 10px;border-radius:4px;border:1px solid var(--accent);color:var(--accent);cursor:pointer;background:transparent">Calcular</button>
-          </div>
-          <div style="font-size:10px;color:var(--dim);margin-top:4px">HC físico total disponível</div>
-        </div>
-      </div>
-      <div id="sens-result-${containerId}" style="font-size:12px;color:var(--muted)">Clique em um botão de variação para ver o impacto no dimensionamento.</div>
-    </div>
-  </div>`;
-}
-
-window.runSens = async function(volDelta, tmoDelta, containerId, baseParams){
-  const resel=document.getElementById('sens-result-'+containerId);
-  resel.innerHTML='<span style="color:var(--muted)">Calculando...</span>';
-  try{
-    const fd=new FormData();
-    const newVol=Math.round(baseParams.volume_mes*(1+volDelta/100));
-    const newTmo=Math.round(baseParams.tmo_base*(1+tmoDelta/100));
-    Object.entries({...baseParams,volume_mes:newVol,tmo_base:newTmo}).forEach(([k,val])=>fd.append(k,val));
-    const resp=await fetch('/calcular',{method:'POST',body:fd});
-    const data=await resp.json();
-    if(data.erro){resel.innerHTML=`<span style="color:var(--red)">${data.erro}</span>`;return;}
-    const sla=fmt(data.kpis.sla_ponderado_mes*100);
-    const hc=data.hc_fisico.total;
-    const tme=fmt(data.dias[0]?.tme_medio||0);
-    const diff=hc-baseParams.hc_total;
-    const diffStr=diff>0?`<span style="color:var(--red)">+${diff}</span>`:diff<0?`<span style="color:var(--green)">${diff}</span>`:'<span>0</span>';
-    resel.innerHTML=`
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px">
-        <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">Vol (${volDelta>0?'+':''}${volDelta}%) / TMO (${tmoDelta>0?'+':''}${tmoDelta}%)</div>
-          <div style="font-size:13px;font-weight:600;color:var(--accent);margin-top:2px">${fmtI(newVol)} lig · ${newTmo}s</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">SLA Mensal</div>
-          <div style="font-size:20px;font-weight:700;color:${data.kpis.sla_ponderado_mes*100>=data.kpis.sla_target*100?'var(--green)':'var(--red)'}">${sla}%</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">HC Total</div>
-          <div style="font-size:20px;font-weight:700;color:var(--accent)">${hc} ${diffStr}</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:8px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">TME Médio (dia útil)</div>
-          <div style="font-size:20px;font-weight:700;color:var(--text)">${tme}s</div>
-        </div>
-      </div>`;
-  }catch(e){resel.innerHTML=`<span style="color:var(--red)">Erro: ${e.message}</span>`;}
-};
-
-// HC → SLA inversão (client-side Erlang C)
-window.runInverso = function(containerId, baseParams){
-  const hcDisp = parseInt(document.getElementById('hc-inv-'+containerId).value)||0;
-  const resel = document.getElementById('sens-result-'+containerId);
-  if(!lastResult||!lastResult.dias||!lastResult.dias.length){resel.innerHTML='Calcule primeiro.';return;}
-
-  // Usa intervalos do primeiro dia útil para estimativa
-  const diaUtil = lastResult.dias.find(d=>d.tipo==='Util');
-  if(!diaUtil){resel.innerHTML='Sem dia útil no resultado.';return;}
-
-  const hcBase = lastResult.hc_fisico.total||1;
-  const ratio = hcDisp / hcBase;
-
-  // Escala a cobertura proporcionalmente e recalcula SLA com Erlang C JS
-  let numSLA=0,denSLA=0,numTME=0,denTME=0;
-  let ivAbaixo=0,ivTotal=0;
-  const tTarget = baseParams.tempo_target||20;
-  const slaTarget = baseParams.sla_target||0.80;
-
-  diaUtil.intervalos.forEach(iv=>{
-    const vol=iv.volume||0; if(vol<0.01) return;
-    const tmo=iv.tmo||1;
-    const u=iv.trafico_erl||0;
-    const covOrig=iv.hc_bruto||0;
-    const covNew=Math.max(0,covOrig*ratio);
-    const m=Math.max(0,Math.ceil(covNew));
-    if(m<=0){ivTotal++;ivAbaixo++;return;}
-    const sla=jsCalcSLA(m,u,tTarget,tmo);
-    numSLA+=vol*sla; denSLA+=vol;
-    const tme=jsTME(m,u,tmo);
-    numTME+=vol*tme; denTME+=vol;
-    ivTotal++;
-    if(sla<slaTarget) ivAbaixo++;
-  });
-
-  const slaEst=(denSLA>0?numSLA/denSLA:0)*100;
-  const tmeEst=denTME>0?numTME/denTME:0;
-  const floorPct=ivTotal>0?(ivTotal-ivAbaixo)/ivTotal*100:0;
-  const cor=slaEst>=slaTarget*100?'var(--green)':'var(--red)';
-
-  resel.innerHTML=`
-    <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:8px">Estimativa com ${hcDisp} HC físicos (Erlang C — dia útil representativo)</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">SLA estimado</div>
-          <div style="font-size:22px;font-weight:700;color:${cor}">${fmt(slaEst)}%</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">TME médio</div>
-          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(tmeEst)}s</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">% intervalos OK</div>
-          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(floorPct)}%</div>
-        </div>
-      </div>
-      <div style="font-size:10px;color:var(--dim);margin-top:8px">* Estimativa simplificada — escala proporcional da cobertura do resultado base.</div>
-    </div>`;
-};
-
-// ── JS Erlang C (para inversão client-side) ───────────────────────────────
-function jsErlangC(m,u){
-  if(u<=0)return 0;if(m<=u)return 1;
-  let logAmm=m*Math.log(u)-[...Array(m)].reduce((s,_,k)=>s+Math.log(k+1),0);
-  let logNum=logAmm-Math.log(1-u/m);
-  let logAk=0,logTerms=[0];
-  for(let k=1;k<m;k++){logAk+=Math.log(u)-Math.log(k);logTerms.push(logAk);}
-  const base=Math.max(...logTerms,logNum);
-  const partial=logTerms.reduce((s,lt)=>s+Math.exp(lt-base),0);
-  const numNorm=Math.exp(logNum-base);
-  return Math.min(numNorm/(partial+numNorm),1);
-}
-function jsCalcSLA(m,u,t,tmo){
-  if(u<=0)return 1;if(m<=0||m<=u)return 0;
-  return Math.max(0,Math.min(1,1-jsErlangC(m,u)*Math.exp((u-m)*(t/tmo))));
-}
-function jsTME(m,u,tmo){
-  if(u<=0)return 0;if(m<=u)return 9999;
-  const ec=jsErlangC(m,u);const d=m-u;return d>0?(ec*tmo)/d:9999;
-}
-
 async function exportar(){
   if(!lastResult){alert('Calcule primeiro.');return;}
   try{
@@ -1557,6 +1301,5 @@ async function exportar(){
   }catch(e){alert('Erro ao exportar: '+e.message);}
 }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </body>
 </html>

@@ -29,21 +29,35 @@ def pl_efetivo(shift_type: str, shrinkage: float) -> float:
 
 
 def valid_slots(shift_type: str, first_slot: int = 0, last_slot_close: int = 144,
-                wrap: bool = False) -> List[int]:
+                wrap: bool = False,
+                entry_first: Optional[int] = None,
+                entry_last:  Optional[int] = None) -> List[int]:
     """
     Retorna slots de entrada válidos para um turno.
     Em modo wrap-around (operação 24h), qualquer slot é válido pois o turno
     pode atravessar meia-noite.
+
+    `entry_first` / `entry_last` (opcionais): janela de entrada permitida
+    em slots de 10min. Se informados, apenas slots s com
+    entry_first <= s <= entry_last são permitidos como início de turno.
     """
     s = SHIFTS[shift_type]
     if wrap:
         # Operação 24h: turnos podem começar em qualquer slot e atravessar meia-noite.
-        return list(range(0, INTERVALS_PER_DAY))
-    abs_last   = s["last_entry_slot"]
-    hours_last = (last_slot_close - s["n_intervals"]) if last_slot_close < 144 else abs_last
-    last  = min(abs_last, hours_last)
-    first = max(s["first_entry_slot"], first_slot)
-    return list(range(first, last + 1)) if first <= last else []
+        slots = list(range(0, INTERVALS_PER_DAY))
+    else:
+        abs_last   = s["last_entry_slot"]
+        hours_last = (last_slot_close - s["n_intervals"]) if last_slot_close < 144 else abs_last
+        last  = min(abs_last, hours_last)
+        first = max(s["first_entry_slot"], first_slot)
+        slots = list(range(first, last + 1)) if first <= last else []
+
+    # Aplica janela de entrada (se configurada)
+    if entry_first is not None:
+        slots = [x for x in slots if x >= entry_first]
+    if entry_last is not None:
+        slots = [x for x in slots if x <= entry_last]
+    return slots
 
 
 def coverage_mask(shift_type: str, start_slot: int, wrap: bool = False) -> np.ndarray:
@@ -650,6 +664,8 @@ def unified_pool_solve(
     mip_rel_gap: float = 0.02,
     min_physical: int = 0,
     wrap: bool = False,
+    entry_first: Optional[int] = None,
+    entry_last:  Optional[int] = None,
 ) -> Dict[str, List[Tuple[int, int]]]:
     """
     Resolve os 3 pools simultaneamente num único MILP respeitando as
@@ -671,8 +687,8 @@ def unified_pool_solve(
     Com wrap=True (operação 24h), turnos podem atravessar meia-noite e
     qualquer slot de entrada é válido.
     """
-    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap)
-    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap)
+    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap, entry_first, entry_last)
+    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap, entry_first, entry_last)
 
     empty = {"sab": [], "dom": [], "812": []}
     if not slots_620 and not slots_812:

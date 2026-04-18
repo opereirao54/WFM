@@ -64,6 +64,12 @@ class WFMInput:
     pausas: PausasAdicionais    = field(default_factory=PausasAdicionais)
     horario_abertura:     str   = ""
     horario_fechamento:   str   = ""
+    # ── Janela de entrada permitida ──────────────────────────────────
+    # Restringe o horário em que novos turnos podem começar (ex: "06:00"
+    # a "17:40" numa operação 24h, impedindo entradas de madrugada ou noite).
+    # Strings vazias = sem restrição (turnos podem entrar em qualquer horário).
+    janela_entrada_inicio: str  = ""
+    janela_entrada_fim:    str  = ""
     min_agentes_intervalo: int  = 0
     # ── Curvas ────────────────────────────────────────────────────────
     curva_semana:  Optional[CurvaIntraday] = None

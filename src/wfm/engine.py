@@ -11,7 +11,7 @@ from .erlang  import (min_hc_for_sla, calc_sla, calc_tme, calc_occupancy,
                       calc_p_abandon)
 from .demand  import (build_day_curves, default_curva, gen_dias_mes, slot_to_time,
                       to_30min_mean, volume_from_peso, HORARIOS,
-                      time_to_slot, detect_operating_hours)
+                      time_to_slot)
 from .solver  import (pl_efetivo, valid_slots, coverage_mask, coverage_from_schedule,
                       schedule_to_total_agents, heuristic_solve, hybrid_solve, exact_solve,
                       unified_pool_solve)
@@ -108,13 +108,29 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     curva_dom = inp.curva_domingo or default_curva("Domingo")
 
     # ── Operating hours ───────────────────────────────────────────────
-    if inp.horario_abertura and inp.horario_fechamento:
-        first_slot_op   = time_to_slot(inp.horario_abertura)
-        last_slot_close = time_to_slot(inp.horario_fechamento)
+    # Se o usuário não informar, assume 24h (00:00–24:00). Removida a
+    # auto-detecção pela curva: o sistema agora sempre respeita o input
+    # explícito do usuário ou opera 24h.
+    def _slot_close(t: str) -> int:
+        """'23:59' e '00:00' no campo fechamento viram slot 144 (24:00)."""
+        if not t:
+            return 144
+        if t in ("24:00", "23:59", "00:00"):
+            return 144
+        return time_to_slot(t)
+
+    if inp.horario_abertura or inp.horario_fechamento:
+        first_slot_op   = time_to_slot(inp.horario_abertura) if inp.horario_abertura else 0
+        last_slot_close = _slot_close(inp.horario_fechamento)
     else:
-        first_slot_op, last_slot_close = detect_operating_hours(curva_sem)
+        first_slot_op, last_slot_close = 0, 144
 
     is_24h = (first_slot_op == 0 and last_slot_close == 144)
+
+    # ── Janela de entrada permitida ───────────────────────────────────
+    # None = sem restrição (usa o default de cada turno).
+    entry_first = time_to_slot(inp.janela_entrada_inicio) if inp.janela_entrada_inicio else None
+    entry_last  = time_to_slot(inp.janela_entrada_fim)    if inp.janela_entrada_fim    else None
 
     if inp.min_agentes_intervalo == 0 and not inp.horario_abertura and is_24h:
         _min_hc = 1
@@ -198,6 +214,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         mip_rel_gap      = 0.02,
         min_physical     = _min_hc,
         wrap             = is_24h,
+        entry_first      = entry_first,
+        entry_last       = entry_last,
     )
 
     sched_b_sab = pools["sab"]
@@ -298,6 +316,42 @@ def run_engine(inp: WFMInput) -> WFMOutput:
 
     # ── Status & alerts ───────────────────────────────────────────────
     alertas, status = [], "optimal"
+
+    # Buracos estruturalmente causados pela janela de entrada:
+    # um slot `i` com demanda é "inalcançável" quando nenhum slot de entrada
+    # permitido [entry_first, entry_last] cobre `i` (considerando wrap em 24h).
+    # Isso é matemática pura — independe do solver ter overstaffing/undercover.
+    if entry_first is not None or entry_last is not None:
+        from .solver import valid_slots as _vs, coverage_mask as _cm
+        allowed_620 = _vs("6:20", first_slot_op, last_slot_close, is_24h, entry_first, entry_last)
+        allowed_812 = _vs("8:12", first_slot_op, last_slot_close, is_24h, entry_first, entry_last)
+        reachable = np.zeros(INTERVALS_PER_DAY, dtype=bool)
+        for s in allowed_620:
+            reachable |= _cm("6:20", s, is_24h)
+        for s in allowed_812:
+            reachable |= _cm("8:12", s, is_24h)
+
+        demand_any = (hc_util > 0.5)
+        if sab_dias: demand_any |= (hc_sab > 0.5)
+        if dom_dias: demand_any |= (hc_dom > 0.5)
+        # Restringe à janela operacional (slots fora dela não contam como buraco)
+        if not is_24h:
+            demand_any[:first_slot_op] = False
+            demand_any[last_slot_close:] = False
+
+        unreachable = demand_any & ~reachable
+        total_gap = int(unreachable.sum())
+        if total_gap > 0:
+            idx = np.where(unreachable)[0]
+            faixa = f"{slot_to_time(int(idx[0]))}–{slot_to_time(int(idx[-1])+1)}"
+            janela_txt = (f"{inp.janela_entrada_inicio or '00:00'}–"
+                          f"{inp.janela_entrada_fim   or '24:00'}")
+            alertas.append(Alerta("BURACO_POR_JANELA",
+                f"Janela de entrada {janela_txt} deixa {total_gap} slot(s) "
+                f"sem cobertura (faixa {faixa}). "
+                f"Amplie a janela de entrada ou aceite o descoberto nessa faixa."))
+            status = "constrained"
+
     if sla_mes < inp.sla_target - 0.01:
         status = "infeasible"
         alertas.append(Alerta("SLA_INSUFICIENTE",
