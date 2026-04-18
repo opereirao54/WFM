@@ -101,6 +101,8 @@ def _rebuild_output(data):
         elapsed_sec=data.get("elapsed_sec",0),
         horario_abertura=data.get("horario_abertura",""),
         horario_fechamento=data.get("horario_fechamento",""),
+        demanda_curves=data.get("demanda_curves",{}),
+        cobertura_curves=data.get("cobertura_curves",{}),
     )
 
 @app.route("/detectar_periodo", methods=["POST"])
@@ -236,6 +238,8 @@ def calcular():
             "alertas":[{"codigo":a.codigo,"mensagem":a.mensagem,
                         "hc_adicional_necessario":a.hc_adicional_necessario}
                        for a in out.alertas],
+            "demanda_curves":   out.demanda_curves,
+            "cobertura_curves": out.cobertura_curves,
         })
     except Exception as e:
         import traceback

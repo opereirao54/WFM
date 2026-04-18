@@ -462,4 +462,14 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         elapsed_sec=time.time()-t0,
         horario_abertura=inp.horario_abertura or slot_to_time(first_slot_op),
         horario_fechamento=inp.horario_fechamento or slot_to_time(last_slot_close),
+        demanda_curves={
+            "util":    [round(float(x), 2) for x in hc_util],
+            "sabado":  [round(float(x), 2) for x in hc_sab],
+            "domingo": [round(float(x), 2) for x in hc_dom],
+        },
+        cobertura_curves={
+            "util":    [round(float(x), 2) for x in cov_weekday],
+            "sabado":  [round(float(x), 2) for x in cov_saturday],
+            "domingo": [round(float(x), 2) for x in cov_sunday],
+        },
     )

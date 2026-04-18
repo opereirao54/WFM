@@ -156,3 +156,6 @@ class WFMOutput:
     elapsed_sec:          float = 0.0
     horario_abertura:     str   = ""
     horario_fechamento:   str   = ""
+    # Curvas intraday (144 slots de 10min) por tipo de dia, para gráfico demanda×escala.
+    demanda_curves:       Dict[str, List[float]] = field(default_factory=dict)
+    cobertura_curves:     Dict[str, List[float]] = field(default_factory=dict)

@@ -935,6 +935,7 @@ function render(d){
   // Limpa o simulador pra forçar re-render na próxima abertura com o novo resultado
   document.getElementById('simulator').innerHTML='';
   document.getElementById('simulator').dataset.loaded='';
+  window.simScenarios = [];
   const el=document.getElementById('results');el.style.display='flex';el.innerHTML='';
   const k=d.kpis;const st=d.status;
   const slaOk=k.sla_ponderado_mes>=k.sla_target-0.005;
@@ -1255,34 +1256,138 @@ function renderEscala(el, d) {
 
   el.innerHTML += gantt;
 
-  // tabela de turnos compacta
+  // tabela de turnos consolidada por (tipo, entrada)
+  const grupos = {};
+  turnos.forEach(t=>{
+    const key = `${t.tipo}|${t.entrada}|${t.saida}`;
+    if(!grupos[key]) grupos[key] = {tipo:t.tipo, entrada:t.entrada, saida:t.saida,
+                                    pools:new Set(), bruto:0, liq:0};
+    grupos[key].pools.add(t.pool);
+    grupos[key].bruto += t.agentes_bruto;
+    grupos[key].liq   += t.agentes_liq;
+  });
+  const linhas = Object.values(grupos).sort((a,b)=>
+    a.tipo.localeCompare(b.tipo) || a.entrada.localeCompare(b.entrada));
+  const totalBruto = linhas.reduce((s,l)=>s+l.bruto,0);
+  const totalLiq   = linhas.reduce((s,l)=>s+l.liq,0);
+
   el.innerHTML+=`<div class="card" style="margin-top:10px">
-    <div class="card-header"><div class="card-title">Detalhe dos Turnos</div></div>
+    <div class="card-header">
+      <div class="card-title">Detalhe dos Turnos</div>
+      <div style="font-size:11px;color:var(--dim)">${linhas.length} combinações · ${turnos.length} registros</div>
+    </div>
     <div class="tbl-wrap"><table class="mt"><thead><tr>
-      <th style="text-align:left">Pool</th>
-      <th style="text-align:left">Tipo</th>
+      <th style="text-align:left">Cobertura</th>
+      <th style="text-align:left">Carga</th>
       <th style="text-align:left">Entrada</th>
       <th style="text-align:left">Saída</th>
       <th>HC Bruto</th>
       <th>HC Líq.</th>
     </tr></thead><tbody>
-    ${turnos.map(t=>{
-      const c=poolColor[t.pool]||poolColor.pool_812;
+    ${linhas.map(l=>{
+      const poolsArr = Array.from(l.pools);
+      const badges = poolsArr.map(p=>{
+        const c=poolColor[p]||poolColor.pool_812;
+        return `<span style="font-size:10px;padding:2px 7px;border-radius:4px;font-weight:600;background:${c.bg};color:${c.text};border:1px solid ${c.border};margin-right:3px">${(poolLabel[p]||p)}</span>`;
+      }).join('');
       return `<tr>
-        <td><span style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;background:${c.bg};color:${c.text};border:1px solid ${c.border}">${(poolLabel[t.pool]||t.pool)}</span></td>
-        <td style="font-family:var(--mono)">${t.tipo}</td>
-        <td style="font-family:var(--mono)">${t.entrada}</td>
-        <td style="font-family:var(--mono)">${t.saida}</td>
-        <td style="color:var(--accent);font-weight:600">${t.agentes_bruto}</td>
-        <td style="color:var(--muted)">${t.agentes_liq}</td>
+        <td>${badges}</td>
+        <td style="font-family:var(--mono)">${l.tipo}</td>
+        <td style="font-family:var(--mono)">${l.entrada}</td>
+        <td style="font-family:var(--mono)">${l.saida}</td>
+        <td style="color:var(--accent);font-weight:600">${l.bruto}</td>
+        <td style="color:var(--muted)">${l.liq.toFixed(1)}</td>
       </tr>`;
     }).join('')}
-    </tbody></table></div>
+    </tbody><tfoot><tr style="border-top:2px solid var(--border)">
+      <td colspan="4" style="text-align:right;font-weight:600;color:var(--muted)">Total</td>
+      <td style="color:var(--accent);font-weight:700">${totalBruto}</td>
+      <td style="color:var(--muted);font-weight:600">${totalLiq.toFixed(1)}</td>
+    </tr></tfoot></table></div>
   </div>`;
+
+  // Gráfico demanda × escala por tipo de dia
+  el.innerHTML += renderDemandCharts(d);
 
   // ── Análises extras ────────────────────────────────────────────────
   // Calendário SLA
   el.innerHTML += renderCalendar(d);
+}
+
+// ── Gráfico Demanda × Escala (SVG inline, sem libs) ─────────────────────
+function renderDemandCharts(d){
+  const dem = d.demanda_curves || {};
+  const cov = d.cobertura_curves || {};
+  const days = [
+    {key:'util',    label:'Dias Úteis (Seg–Sex)', color:'#1b3a6b'},
+    {key:'sabado',  label:'Sábado',               color:'#d67f27'},
+    {key:'domingo', label:'Domingo',              color:'#8e44ad'},
+  ].filter(x => (dem[x.key]||[]).length>0 || (cov[x.key]||[]).length>0);
+  if(!days.length) return '';
+
+  const svgChart = (dArr, cArr, color, label) => {
+    const W=760, H=180, padL=36, padR=12, padT=14, padB=28;
+    const n = 144;
+    const maxVal = Math.max(1, ...dArr, ...cArr);
+    const xStep = (W - padL - padR) / n;
+    const yScale = v => padT + (H - padT - padB) * (1 - v/maxVal);
+
+    const areaDem = dArr.map((v,i)=>`${i===0?'M':'L'} ${padL+i*xStep} ${yScale(v)}`).join(' ')
+                  + ` L ${padL+(n-1)*xStep} ${H-padB} L ${padL} ${H-padB} Z`;
+    const lineCov = cArr.map((v,i)=>`${i===0?'M':'L'} ${padL+i*xStep} ${yScale(v)}`).join(' ');
+
+    const xTicks = [0,3,6,9,12,15,18,21,24];
+    const yTicks = 4;
+    const yGrid = Array.from({length:yTicks+1},(_,k)=>{
+      const val = Math.round(maxVal*k/yTicks);
+      const y = yScale(val);
+      return `<line x1="${padL}" x2="${W-padR}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-dasharray="2 3" stroke-width="0.5"/>
+              <text x="${padL-4}" y="${y+3}" text-anchor="end" font-size="9" fill="var(--dim)">${val}</text>`;
+    }).join('');
+    const xLabels = xTicks.map(h=>{
+      const x = padL + (h*6) * xStep;
+      return `<text x="${x}" y="${H-padB+14}" text-anchor="middle" font-size="9" fill="var(--dim)">${String(h).padStart(2,'0')}h</text>`;
+    }).join('');
+
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto;display:block">
+      ${yGrid}
+      <path d="${areaDem}" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-width="1" stroke-opacity="0.6"/>
+      <path d="${lineCov}" fill="none" stroke="var(--green)" stroke-width="1.8"/>
+      ${xLabels}
+      <text x="${W-padR}" y="${padT}" text-anchor="end" font-size="10" fill="var(--muted)" font-weight="600">${label}</text>
+    </svg>`;
+  };
+
+  const cards = days.map(({key,label,color})=>{
+    const dArr = dem[key]||Array(144).fill(0);
+    const cArr = cov[key]||Array(144).fill(0);
+    const peakDem = Math.max(...dArr), peakCov = Math.max(...cArr);
+    const totalDem = dArr.reduce((s,v)=>s+v,0);
+    const totalCov = cArr.reduce((s,v)=>s+v,0);
+    const ratio = totalDem>0 ? (totalCov/totalDem*100) : 0;
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 4px 4px">
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${label}</div>
+        <div style="font-size:10px;color:var(--dim)">
+          pico demanda <b style="color:${color}">${peakDem.toFixed(1)}</b> ·
+          pico escala <b style="color:var(--green)">${peakCov.toFixed(1)}</b> ·
+          razão HH <b>${ratio.toFixed(0)}%</b>
+        </div>
+      </div>
+      ${svgChart(dArr, cArr, color, '')}
+    </div>`;
+  }).join('');
+
+  return `<div class="card" style="margin-top:10px">
+    <div class="card-header">
+      <div class="card-title">Demanda × Escala</div>
+      <div style="font-size:11px;color:var(--dim);display:flex;gap:12px">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#1b3a6b;opacity:.4;vertical-align:middle;margin-right:3px"></span>Demanda (HC necessário)</span>
+        <span><span style="display:inline-block;width:10px;height:2px;background:var(--green);vertical-align:middle;margin-right:3px"></span>Escala gerada (cobertura)</span>
+      </div>
+    </div>
+    <div style="padding:10px 16px 14px">${cards}</div>
+  </div>`;
 }
 
 // ── Calendário SLA heatmap ───────────────────────────────────────────────
@@ -1358,7 +1463,9 @@ window.switchView = function(which){
   }
 };
 
-// ── Simulador (lazy — renderiza só quando a aba é aberta) ────────────
+// ── Simulador multi-cenário ──────────────────────────────────────────
+window.simScenarios = window.simScenarios || [];
+
 function renderSimulador(box){
   if(!lastResult){
     box.innerHTML = `<div class="card"><div style="padding:24px;text-align:center;color:var(--dim)">
@@ -1368,30 +1475,32 @@ function renderSimulador(box){
   const hcBase = lastResult.hc_fisico?.total || 100;
   box.innerHTML = `
     <div class="card">
-      <div class="card-header"><div class="card-title">🧪 Simulador de Cenários</div></div>
+      <div class="card-header">
+        <div class="card-title">🧪 Simulador de Cenários</div>
+        <div style="font-size:11px;color:var(--dim)">Baseline: ${hcBase} HC · SLA ${fmt((lastResult.kpis?.sla_ponderado_mes||0)*100)}%</div>
+      </div>
       <div style="padding:0 16px 16px">
         <div style="font-size:11px;color:var(--dim);margin-bottom:14px">
-          Teste variações de volume/TMO (roda no backend) ou a inversão HC→SLA (roda local, instantâneo).
-          Não altera o resultado original da aba Resultados.
+          Cada clique adiciona um cenário à tabela abaixo. Compare quantos quiser — o baseline (Resultados) nunca é alterado.
         </div>
 
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação rápida de Volume (TMO = 0)</label>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">+ cenário rápido: variação de Volume (TMO = 0)</label>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
-              ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(${p},0)">${p>0?'+':''}${p}%</button>`).join('')}
+              ${[-20,-10,-5,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(${p},0)">${p>0?'+':''}${p}%</button>`).join('')}
             </div>
           </div>
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação rápida de TMO (Volume = 0)</label>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">+ cenário rápido: variação de TMO (Volume = 0)</label>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
-              ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(0,${p})">${p>0?'+':''}${p}%</button>`).join('')}
+              ${[-20,-10,-5,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(0,${p})">${p>0?'+':''}${p}%</button>`).join('')}
             </div>
           </div>
         </div>
 
-        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px">
-          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Combinação customizada (Volume + TMO juntos)</label>
+        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:12px">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">+ cenário customizado (Volume + TMO juntos)</label>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--dim)">Vol</span>
             <input type="number" id="sim-combo-vol" value="10" min="-50" max="100" step="1" style="width:70px;font-size:13px;padding:4px 8px">
@@ -1400,42 +1509,101 @@ function renderSimulador(box){
             <input type="number" id="sim-combo-tmo" value="5" min="-50" max="100" step="1" style="width:70px;font-size:13px;padding:4px 8px">
             <span style="font-size:11px;color:var(--dim)">%</span>
             <button class="sim-btn" style="border-color:var(--accent);color:var(--accent);margin-left:6px"
-              onclick="runSimDelta(parseFloat(document.getElementById('sim-combo-vol').value)||0, parseFloat(document.getElementById('sim-combo-tmo').value)||0)">Aplicar cenário</button>
+              onclick="runSimDelta(parseFloat(document.getElementById('sim-combo-vol').value)||0, parseFloat(document.getElementById('sim-combo-tmo').value)||0)">+ Adicionar cenário</button>
           </div>
         </div>
 
-        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px">
+        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:12px">
           <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">HC → SLA (inversão local, Erlang C)</label>
           <div style="display:flex;gap:8px;align-items:center">
             <input type="number" id="sim-hc-inv" value="${hcBase}" min="1" max="9999" style="width:100px;font-size:13px;padding:4px 8px">
-            <button class="sim-btn" onclick="runSimInverso()" style="border-color:var(--accent);color:var(--accent)">Calcular SLA com este HC</button>
+            <button class="sim-btn" onclick="runSimInverso()" style="border-color:var(--accent);color:var(--accent)">+ Adicionar cenário HC→SLA</button>
             <span style="font-size:11px;color:var(--dim)">HC base: ${hcBase}</span>
           </div>
         </div>
 
-        <div id="sim-result" style="font-size:12px;color:var(--muted);min-height:60px">
-          <div style="padding:14px;background:var(--surface2);border-radius:8px;text-align:center">
-            Clique em uma variação ou em "Calcular SLA" para ver o impacto.
-          </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
+          <div style="font-size:12px;font-weight:600;color:var(--text)">Cenários acumulados</div>
+          <button class="sim-btn" onclick="simClear()" style="font-size:11px">🗑️ Limpar cenários</button>
         </div>
+
+        <div id="sim-list" style="font-size:12px;color:var(--muted);min-height:40px"></div>
       </div>
     </div>
     <style>
       .sim-btn{font-size:12px;padding:5px 10px;border-radius:4px;border:1px solid var(--border);
         cursor:pointer;background:var(--surface2);color:var(--muted);font-family:var(--sans)}
       .sim-btn:hover{background:var(--surface);color:var(--text)}
+      .sim-row{background:var(--surface2);border-radius:6px;padding:10px;display:grid;
+        grid-template-columns:1fr 1fr 1fr 1fr 34px;gap:10px;align-items:center;margin-bottom:6px}
+      .sim-row .k{font-size:10px;color:var(--dim);text-align:center}
+      .sim-row .v{font-size:18px;font-weight:700;text-align:center}
+      .sim-row .rm{background:transparent;border:1px solid var(--border2);border-radius:4px;
+        color:var(--dim);cursor:pointer;width:28px;height:28px;font-size:14px;line-height:1}
+      .sim-row .rm:hover{background:var(--red);color:#fff;border-color:var(--red)}
     </style>`;
+  simRenderList();
 }
 
+function simClear(){ window.simScenarios = []; simRenderList(); }
+
+function simRemove(id){
+  window.simScenarios = window.simScenarios.filter(s=>s.id!==id);
+  simRenderList();
+}
+
+function simRenderList(){
+  const el = document.getElementById('sim-list');
+  if(!el) return;
+  if(!window.simScenarios.length){
+    el.innerHTML = `<div style="padding:14px;background:var(--surface2);border-radius:8px;text-align:center;color:var(--dim)">
+      Nenhum cenário ainda. Clique em qualquer botão de "+ cenário" para começar.</div>`;
+    return;
+  }
+  const hcBase = lastResult.hc_fisico?.total || 0;
+  const slaTarget = lastResult.kpis?.sla_target || 0.8;
+  el.innerHTML = window.simScenarios.map(s=>{
+    if(s.loading){
+      return `<div class="sim-row"><div style="grid-column:1/-1;text-align:center;padding:6px">
+        <span style="color:var(--dim);font-size:11px">${s.label} — calculando…</span></div></div>`;
+    }
+    if(s.error){
+      return `<div class="sim-row"><div style="grid-column:1/-1;color:var(--red);padding:6px;font-size:11px">
+        ${s.label} — Erro: ${s.error}</div></div>`;
+    }
+    const diff = s.hc - hcBase;
+    const diffStr = diff>0?`<span style="color:var(--red);font-size:11px"> +${diff}</span>`
+                   :diff<0?`<span style="color:var(--green);font-size:11px"> ${diff}</span>`
+                   :`<span style="color:var(--dim);font-size:11px"> 0</span>`;
+    const slaCor = s.sla/100 >= slaTarget ? 'var(--green)' : 'var(--red)';
+    return `<div class="sim-row">
+      <div>
+        <div class="k">Cenário</div>
+        <div style="font-size:12px;font-weight:600;color:var(--accent);text-align:center">${s.label}</div>
+        ${s.sub?`<div class="k">${s.sub}</div>`:''}
+      </div>
+      <div><div class="k">SLA Mensal</div><div class="v" style="color:${slaCor}">${fmt(s.sla)}%</div></div>
+      <div><div class="k">HC Total</div><div class="v" style="color:var(--accent)">${s.hc}${diffStr}</div></div>
+      <div><div class="k">TME Médio</div><div class="v">${fmt(s.tme)}s</div></div>
+      <button class="rm" onclick="simRemove(${s.id})" title="Remover">×</button>
+    </div>`;
+  }).join('');
+}
+
+let _simIdSeq = 1;
+
 window.runSimDelta = async function(volDelta, tmoDelta){
-  const resel = document.getElementById('sim-result');
-  resel.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted)">Calculando...</div>';
+  const id = _simIdSeq++;
+  const baseVol = parseInt(v('volume_mes'))||150000;
+  const baseTmo = parseFloat(v('tmo_base'))||240;
+  const newVol = Math.round(baseVol*(1+volDelta/100));
+  const newTmo = Math.round(baseTmo*(1+tmoDelta/100));
+  const label = `Vol ${volDelta>=0?'+':''}${volDelta}% · TMO ${tmoDelta>=0?'+':''}${tmoDelta}%`;
+  const sub   = `${fmtI(newVol)} lig · ${newTmo}s`;
+  window.simScenarios.push({id, label, sub, loading:true});
+  simRenderList();
   try{
     const fd = new FormData();
-    const baseVol = parseInt(v('volume_mes'))||150000;
-    const baseTmo = parseFloat(v('tmo_base'))||240;
-    const newVol = Math.round(baseVol*(1+volDelta/100));
-    const newTmo = Math.round(baseTmo*(1+tmoDelta/100));
     const fields = {
       volume_mes:newVol, tmo_base:newTmo,
       sla_target:parseInt(v('sla_target'))/100, tempo_target:v('tempo_target'),
@@ -1459,52 +1627,33 @@ window.runSimDelta = async function(volDelta, tmoDelta){
     if(uploadedFile) fd.append('curvas_excel', uploadedFile);
     const resp = await fetch('/calcular',{method:'POST',body:fd});
     const data = await resp.json();
-    if(data.erro){ resel.innerHTML=`<div style="color:var(--red);padding:14px">Erro: ${data.erro}</div>`; return; }
-    const sla = fmt(data.kpis.sla_ponderado_mes*100);
-    const hc  = data.hc_fisico.total;
-    const tme = fmt(data.dias[0]?.tme_medio||0);
-    const diff = hc - (lastResult.hc_fisico?.total||0);
-    const diffStr = diff>0?`<span style="color:var(--red)">+${diff}</span>`:diff<0?`<span style="color:var(--green)">${diff}</span>`:`<span>0</span>`;
-    const slaCor = data.kpis.sla_ponderado_mes>=data.kpis.sla_target?'var(--green)':'var(--red)';
-    resel.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
-        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">Cenário</div>
-          <div style="font-size:13px;font-weight:600;color:var(--accent);margin-top:2px">Vol ${volDelta>0?'+':''}${volDelta}% · TMO ${tmoDelta>0?'+':''}${tmoDelta}%</div>
-          <div style="font-size:10px;color:var(--dim);margin-top:2px">${fmtI(newVol)} lig · ${newTmo}s</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">SLA Mensal</div>
-          <div style="font-size:22px;font-weight:700;color:${slaCor}">${sla}%</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">HC Total</div>
-          <div style="font-size:22px;font-weight:700;color:var(--accent)">${hc} ${diffStr}</div>
-        </div>
-        <div style="background:var(--surface2);border-radius:6px;padding:10px;text-align:center">
-          <div style="font-size:10px;color:var(--dim)">TME Médio</div>
-          <div style="font-size:22px;font-weight:700">${tme}s</div>
-        </div>
-      </div>`;
+    const row = window.simScenarios.find(s=>s.id===id);
+    if(!row) return;  // removido enquanto rodava
+    row.loading = false;
+    if(data.erro){ row.error = data.erro; }
+    else {
+      row.sla = data.kpis.sla_ponderado_mes*100;
+      row.hc  = data.hc_fisico.total;
+      row.tme = data.dias[0]?.tme_medio||0;
+    }
+    simRenderList();
   }catch(e){
-    resel.innerHTML = `<div style="color:var(--red);padding:14px">Erro: ${e.message}</div>`;
+    const row = window.simScenarios.find(s=>s.id===id);
+    if(row){ row.loading=false; row.error=e.message; simRenderList(); }
   }
 };
 
 window.runSimInverso = function(){
   const hcDisp = parseInt(document.getElementById('sim-hc-inv').value)||0;
-  const resel = document.getElementById('sim-result');
-  if(!lastResult||!lastResult.dias||!lastResult.dias.length){
-    resel.innerHTML='<div style="padding:14px">Calcule primeiro.</div>'; return;
-  }
-  const diaUtil = lastResult.dias.find(d=>d.tipo==='Util');
-  if(!diaUtil){ resel.innerHTML='<div style="padding:14px">Sem dia útil no resultado.</div>'; return; }
+  if(!lastResult||!lastResult.dias||!lastResult.dias.length) return;
+  const diaUtil = lastResult.dias.find(d=>d.tipo==='Util') || lastResult.dias[0];
+  if(!diaUtil) return;
 
   const hcBase = lastResult.hc_fisico.total||1;
   const ratio = hcDisp / hcBase;
   const tTarget  = parseFloat(v('tempo_target'))||20;
   const slaTarget = (parseInt(v('sla_target'))||80)/100;
-  let numSLA=0,denSLA=0,numTME=0,denTME=0,ivAbaixo=0,ivTotal=0;
+  let numSLA=0,denSLA=0,numTME=0,denTME=0;
 
   diaUtil.intervalos.forEach(iv=>{
     const vol=iv.volume||0; if(vol<0.01) return;
@@ -1512,40 +1661,20 @@ window.runSimInverso = function(){
     const u=iv.trafico_erl||0;
     const covNew=Math.max(0,(iv.hc_bruto||0)*ratio);
     const m=Math.max(0,Math.ceil(covNew));
-    if(m<=0){ivTotal++;ivAbaixo++;return;}
-    const sla=jsCalcSLA(m,u,tTarget,tmo);
+    const sla = m<=0 ? 0 : jsCalcSLA(m,u,tTarget,tmo);
     numSLA+=vol*sla; denSLA+=vol;
-    numTME+=vol*jsTME(m,u,tmo); denTME+=vol;
-    ivTotal++;
-    if(sla<slaTarget) ivAbaixo++;
+    numTME+=vol*(m<=0?9999:jsTME(m,u,tmo)); denTME+=vol;
   });
 
   const slaEst=(denSLA>0?numSLA/denSLA:0)*100;
   const tmeEst=denTME>0?numTME/denTME:0;
-  const floorPct=ivTotal>0?(ivTotal-ivAbaixo)/ivTotal*100:0;
-  const cor=slaEst>=slaTarget*100?'var(--green)':'var(--red)';
-  const diff = hcDisp - hcBase;
-  const diffStr = diff>0?`<span style="color:var(--green)">+${diff}</span>`:diff<0?`<span style="color:var(--red)">${diff}</span>`:`<span>0</span>`;
-  resel.innerHTML = `
-    <div style="background:var(--surface2);border-radius:8px;padding:14px">
-      <div style="font-size:11px;color:var(--dim);margin-bottom:10px">
-        Com <b>${hcDisp}</b> HC físicos ${diffStr} vs base · estimativa por escala proporcional da cobertura do dia útil.
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">SLA estimado</div>
-          <div style="font-size:22px;font-weight:700;color:${cor}">${fmt(slaEst)}%</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">TME médio</div>
-          <div style="font-size:22px;font-weight:700">${fmt(tmeEst)}s</div>
-        </div>
-        <div style="text-align:center">
-          <div style="font-size:10px;color:var(--dim)">% intervalos OK</div>
-          <div style="font-size:22px;font-weight:700">${fmt(floorPct)}%</div>
-        </div>
-      </div>
-    </div>`;
+  window.simScenarios.push({
+    id: _simIdSeq++,
+    label: `HC fixo = ${hcDisp}`,
+    sub: `inversão Erlang C (dia útil)`,
+    sla: slaEst, hc: hcDisp, tme: tmeEst,
+  });
+  simRenderList();
 };
 
 // ── JS Erlang C (para inversão client-side) ───────────────────────────
