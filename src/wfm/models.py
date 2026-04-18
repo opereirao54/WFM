@@ -70,6 +70,9 @@ class WFMInput:
     # Strings vazias = sem restrição (turnos podem entrar em qualquer horário).
     janela_entrada_inicio: str  = ""
     janela_entrada_fim:    str  = ""
+    # Lista de janelas BLOQUEADAS de entrada (ex: ["00:00-05:59","17:41-23:59"]).
+    # Quando preenchida, tem precedência sobre janela_entrada_inicio/fim.
+    janelas_bloqueadas: List[str] = field(default_factory=list)
     min_agentes_intervalo: int  = 0
     # ── Curvas ────────────────────────────────────────────────────────
     curva_semana:  Optional[CurvaIntraday] = None

@@ -30,16 +30,14 @@ def pl_efetivo(shift_type: str, shrinkage: float) -> float:
 
 def valid_slots(shift_type: str, first_slot: int = 0, last_slot_close: int = 144,
                 wrap: bool = False,
-                entry_first: Optional[int] = None,
-                entry_last:  Optional[int] = None) -> List[int]:
+                entry_allowed_mask: Optional[np.ndarray] = None) -> List[int]:
     """
     Retorna slots de entrada válidos para um turno.
     Em modo wrap-around (operação 24h), qualquer slot é válido pois o turno
     pode atravessar meia-noite.
 
-    `entry_first` / `entry_last` (opcionais): janela de entrada permitida
-    em slots de 10min. Se informados, apenas slots s com
-    entry_first <= s <= entry_last são permitidos como início de turno.
+    `entry_allowed_mask` (opcional): array booleano (144,) onde True = slot
+    permitido como início de turno. None = sem restrição adicional.
     """
     s = SHIFTS[shift_type]
     if wrap:
@@ -52,11 +50,9 @@ def valid_slots(shift_type: str, first_slot: int = 0, last_slot_close: int = 144
         first = max(s["first_entry_slot"], first_slot)
         slots = list(range(first, last + 1)) if first <= last else []
 
-    # Aplica janela de entrada (se configurada)
-    if entry_first is not None:
-        slots = [x for x in slots if x >= entry_first]
-    if entry_last is not None:
-        slots = [x for x in slots if x <= entry_last]
+    # Aplica máscara de janelas de entrada (se configurada)
+    if entry_allowed_mask is not None:
+        slots = [x for x in slots if entry_allowed_mask[x]]
     return slots
 
 
@@ -664,8 +660,7 @@ def unified_pool_solve(
     mip_rel_gap: float = 0.02,
     min_physical: int = 0,
     wrap: bool = False,
-    entry_first: Optional[int] = None,
-    entry_last:  Optional[int] = None,
+    entry_allowed_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, List[Tuple[int, int]]]:
     """
     Resolve os 3 pools simultaneamente num único MILP respeitando as
@@ -687,8 +682,8 @@ def unified_pool_solve(
     Com wrap=True (operação 24h), turnos podem atravessar meia-noite e
     qualquer slot de entrada é válido.
     """
-    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap, entry_first, entry_last)
-    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap, entry_first, entry_last)
+    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap, entry_allowed_mask)
+    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap, entry_allowed_mask)
 
     empty = {"sab": [], "dom": [], "812": []}
     if not slots_620 and not slots_812:

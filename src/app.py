@@ -160,6 +160,8 @@ def calcular():
             horario_fechamento   = fv("horario_fechamento", "").strip(),
             janela_entrada_inicio = fv("janela_entrada_inicio", "").strip(),
             janela_entrada_fim    = fv("janela_entrada_fim", "").strip(),
+            janelas_bloqueadas    = [s.strip() for s in
+                fv("janelas_bloqueadas", "").split(";") if s.strip()],
             min_agentes_intervalo = int(fv("min_agentes", 0)),
             pausas=PausasAdicionais(
                 absenteismo = float(fv("absenteismo", 0.05)),

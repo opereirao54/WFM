@@ -434,6 +434,23 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   box-shadow:0 1px 3px rgba(27,58,107,.2)
 }
 
+/* ── Janelas bloqueadas (lista dinâmica) ───────────────────── */
+.jb-row{
+  display:flex;gap:6px;align-items:center;margin-bottom:4px
+}
+.jb-row input{
+  width:70px;font-size:12px;padding:5px 8px;background:var(--surface2);
+  border:1px solid var(--border2);border-radius:4px;color:var(--text);
+  font-family:var(--sans);text-align:center
+}
+.jb-row input:focus{border-color:var(--accent);outline:none}
+.jb-row .jb-del{
+  width:22px;height:22px;padding:0;font-size:14px;line-height:1;
+  background:transparent;border:1px solid var(--border2);border-radius:4px;
+  color:var(--dim);cursor:pointer
+}
+.jb-row .jb-del:hover{background:var(--red);color:#fff;border-color:var(--red)}
+
 /* ── V5: Campo de range de horário ────────────────────────── */
 .time-range{
   display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:end
@@ -634,19 +651,14 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   </div>
 
   <div class="sec-group">
-    <div class="sec-label">Janela de Entrada Permitida</div>
-    <div class="time-range">
-      <div class="fld"><label>Entrada a partir de</label>
-        <input type="text" id="janela_entrada_inicio" placeholder="06:00">
-      </div>
-      <div class="sep">—</div>
-      <div class="fld"><label>Entrada até</label>
-        <input type="text" id="janela_entrada_fim" placeholder="17:40">
-      </div>
-    </div>
-    <div style="font-size:10px;color:var(--dim);line-height:1.6;margin-top:4px">
-      Restringe os horários em que os turnos podem começar. Deixe vazio para permitir entrada em qualquer horário.<br>
-      <b>Ex:</b> operação 24h com entradas só entre <b>06:00</b> e <b>17:40</b> — impede novos turnos iniciando na madrugada ou à noite.
+    <div class="sec-label">Janelas BLOQUEADAS de Entrada</div>
+    <div id="janelas-bloqueadas-list"></div>
+    <button type="button" class="tb" style="margin-top:6px;font-size:11px;padding:4px 10px"
+      onclick="addJanelaBloqueada()">+ Adicionar janela bloqueada</button>
+    <div style="font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px">
+      Faixas em que turnos <b>não podem</b> começar. Você pode adicionar quantas quiser.<br>
+      <b>Ex:</b> operação 24h com bloqueio de <b>00:00–05:59</b> e <b>17:41–23:59</b> — permite entrada só entre 06:00 e 17:40.<br>
+      Sem janelas = entrada livre em qualquer horário.
     </div>
   </div>
 
@@ -772,6 +784,27 @@ function updateFdsVisibility(){
   document.getElementById('sec-fds').style.display=(hasSab||hasDom)?'':'none';
 }
 
+// ── Janelas bloqueadas de entrada (lista dinâmica) ─────────────
+function addJanelaBloqueada(inicio='', fim=''){
+  const list=document.getElementById('janelas-bloqueadas-list');
+  const row=document.createElement('div');
+  row.className='jb-row';
+  row.innerHTML=`
+    <input type="text" class="jb-ini" placeholder="00:00" value="${inicio}" maxlength="5">
+    <span style="color:var(--dim)">até</span>
+    <input type="text" class="jb-fim" placeholder="05:59" value="${fim}" maxlength="5">
+    <button type="button" class="jb-del" title="Remover" onclick="this.parentElement.remove()">×</button>
+  `;
+  list.appendChild(row);
+}
+function getJanelasBloqueadas(){
+  return Array.from(document.querySelectorAll('#janelas-bloqueadas-list .jb-row')).map(r=>{
+    const a=r.querySelector('.jb-ini').value.trim();
+    const b=r.querySelector('.jb-fim').value.trim();
+    return (a && b) ? `${a}-${b}` : '';
+  }).filter(s=>s);
+}
+
 // ── V5: detecção de 24h a partir do input de horário ──────────
 function checkIs24h(){
   const ab=v('horario_abertura').trim(), fec=v('horario_fechamento').trim();
@@ -867,8 +900,7 @@ async function calcular(){
       vol_domingo_pct:parseInt(v('vol_domingo_pct'))/100,
       horario_abertura:v('horario_abertura').trim(),
       horario_fechamento:v('horario_fechamento').trim(),
-      janela_entrada_inicio:v('janela_entrada_inicio').trim(),
-      janela_entrada_fim:v('janela_entrada_fim').trim(),
+      janelas_bloqueadas:getJanelasBloqueadas().join(';'),
       min_agentes:parseInt(v('min_agentes'))||0,
       // ── V5: dias de funcionamento ──
       dias_funcionamento: activeDays.join(','),
@@ -1343,18 +1375,32 @@ function renderSimulador(box){
           Não altera o resultado original da aba Resultados.
         </div>
 
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação de Volume</label>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação rápida de Volume (TMO = 0)</label>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
               ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(${p},0)">${p>0?'+':''}${p}%</button>`).join('')}
             </div>
           </div>
           <div>
-            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação de TMO</label>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Variação rápida de TMO (Volume = 0)</label>
             <div style="display:flex;gap:4px;flex-wrap:wrap">
               ${[-20,-10,-5,0,5,10,20].map(p=>`<button class="sim-btn" onclick="runSimDelta(0,${p})">${p>0?'+':''}${p}%</button>`).join('')}
             </div>
+          </div>
+        </div>
+
+        <div style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:16px">
+          <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:6px">Combinação customizada (Volume + TMO juntos)</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--dim)">Vol</span>
+            <input type="number" id="sim-combo-vol" value="10" min="-50" max="100" step="1" style="width:70px;font-size:13px;padding:4px 8px">
+            <span style="font-size:11px;color:var(--dim)">%</span>
+            <span style="font-size:11px;color:var(--dim);margin-left:8px">TMO</span>
+            <input type="number" id="sim-combo-tmo" value="5" min="-50" max="100" step="1" style="width:70px;font-size:13px;padding:4px 8px">
+            <span style="font-size:11px;color:var(--dim)">%</span>
+            <button class="sim-btn" style="border-color:var(--accent);color:var(--accent);margin-left:6px"
+              onclick="runSimDelta(parseFloat(document.getElementById('sim-combo-vol').value)||0, parseFloat(document.getElementById('sim-combo-tmo').value)||0)">Aplicar cenário</button>
           </div>
         </div>
 
@@ -1405,8 +1451,7 @@ window.runSimDelta = async function(volDelta, tmoDelta){
       vol_domingo_pct:parseInt(v('vol_domingo_pct'))/100,
       horario_abertura:v('horario_abertura').trim(),
       horario_fechamento:v('horario_fechamento').trim(),
-      janela_entrada_inicio:v('janela_entrada_inicio').trim(),
-      janela_entrada_fim:v('janela_entrada_fim').trim(),
+      janelas_bloqueadas:getJanelasBloqueadas().join(';'),
       min_agentes:parseInt(v('min_agentes'))||0,
       dias_funcionamento:getActiveDays().join(','),
     };
