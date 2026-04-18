@@ -130,7 +130,17 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     # ── Janela de entrada permitida ───────────────────────────────────
     # Máscara booleana (144,): True = slot permitido como início de turno.
     # None = sem restrição adicional.
+    def _time_to_minutes(s):
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+
     def _parse_blocked_ranges(ranges):
+        # Slots são de 10min: slot 0=[00:00,00:10), slot 106=[17:40,17:50), etc.
+        # O bloqueio é "inclusivo" nos dois extremos do horário informado:
+        #   - início: arredonda pra CIMA (ceil) → primeiro slot cujo horário ≥ 'a'
+        #   - fim:    arredonda pra BAIXO (floor) → último slot cujo horário ≤ 'b'
+        # Ex: "00:01-05:59" bloqueia slots 1..35 (00:10..05:50). 00:00 e 06:00 livres.
+        # Ex: "17:41-23:59" bloqueia slots 107..143 (17:50..23:50). 17:40 livre.
         mask = np.ones(INTERVALS_PER_DAY, dtype=bool)
         any_valid = False
         for raw in ranges or []:
@@ -139,22 +149,26 @@ def run_engine(inp: WFMInput) -> WFMOutput:
                 continue
             try:
                 a, b = [x.strip() for x in r.split("-", 1)]
-                sa = time_to_slot(a)
-                sb = 143 if b in ("23:59", "24:00") else time_to_slot(b)
+                a_min = _time_to_minutes(a)
+                b_min = 1439 if b in ("23:59", "24:00") else _time_to_minutes(b)
+                sa = (a_min + 9) // 10           # ceil
+                sb = b_min // 10                 # floor
             except Exception:
                 continue
             sa = max(0, min(143, sa))
             sb = max(0, min(143, sb))
-            if sa <= sb:
-                mask[sa:sb + 1] = False
-            else:  # wrap em torno da meia-noite
+            if sa > sb:
+                # wrap em torno da meia-noite
                 mask[sa:] = False
                 mask[:sb + 1] = False
+            else:
+                mask[sa:sb + 1] = False
             any_valid = True
         return mask if any_valid else None
 
     entry_allowed_mask = _parse_blocked_ranges(inp.janelas_bloqueadas)
     if entry_allowed_mask is None and (inp.janela_entrada_inicio or inp.janela_entrada_fim):
+        # Legacy: janela permitida única (inclusive nos dois lados).
         entry_allowed_mask = np.zeros(INTERVALS_PER_DAY, dtype=bool)
         _sa = time_to_slot(inp.janela_entrada_inicio) if inp.janela_entrada_inicio else 0
         _sb = time_to_slot(inp.janela_entrada_fim)    if inp.janela_entrada_fim    else 143
