@@ -70,6 +70,9 @@ class WFMInput:
     # Strings vazias = sem restrição (turnos podem entrar em qualquer horário).
     janela_entrada_inicio: str  = ""
     janela_entrada_fim:    str  = ""
+    # Lista de janelas BLOQUEADAS de entrada (ex: ["00:00-05:59","17:41-23:59"]).
+    # Quando preenchida, tem precedência sobre janela_entrada_inicio/fim.
+    janelas_bloqueadas: List[str] = field(default_factory=list)
     min_agentes_intervalo: int  = 0
     # ── Curvas ────────────────────────────────────────────────────────
     curva_semana:  Optional[CurvaIntraday] = None
@@ -153,3 +156,6 @@ class WFMOutput:
     elapsed_sec:          float = 0.0
     horario_abertura:     str   = ""
     horario_fechamento:   str   = ""
+    # Curvas intraday (144 slots de 10min) por tipo de dia, para gráfico demanda×escala.
+    demanda_curves:       Dict[str, List[float]] = field(default_factory=dict)
+    cobertura_curves:     Dict[str, List[float]] = field(default_factory=dict)

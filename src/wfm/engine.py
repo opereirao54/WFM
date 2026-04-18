@@ -128,9 +128,56 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     is_24h = (first_slot_op == 0 and last_slot_close == 144)
 
     # ── Janela de entrada permitida ───────────────────────────────────
-    # None = sem restrição (usa o default de cada turno).
-    entry_first = time_to_slot(inp.janela_entrada_inicio) if inp.janela_entrada_inicio else None
-    entry_last  = time_to_slot(inp.janela_entrada_fim)    if inp.janela_entrada_fim    else None
+    # Máscara booleana (144,): True = slot permitido como início de turno.
+    # None = sem restrição adicional.
+    def _time_to_minutes(s):
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+
+    def _parse_blocked_ranges(ranges):
+        # Slots são de 10min: slot 0=[00:00,00:10), slot 106=[17:40,17:50), etc.
+        # O bloqueio é "inclusivo" nos dois extremos do horário informado:
+        #   - início: arredonda pra CIMA (ceil) → primeiro slot cujo horário ≥ 'a'
+        #   - fim:    arredonda pra BAIXO (floor) → último slot cujo horário ≤ 'b'
+        # Ex: "00:01-05:59" bloqueia slots 1..35 (00:10..05:50). 00:00 e 06:00 livres.
+        # Ex: "17:41-23:59" bloqueia slots 107..143 (17:50..23:50). 17:40 livre.
+        mask = np.ones(INTERVALS_PER_DAY, dtype=bool)
+        any_valid = False
+        for raw in ranges or []:
+            r = (raw or "").strip()
+            if not r or "-" not in r:
+                continue
+            try:
+                a, b = [x.strip() for x in r.split("-", 1)]
+                a_min = _time_to_minutes(a)
+                b_min = 1439 if b in ("23:59", "24:00") else _time_to_minutes(b)
+                sa = (a_min + 9) // 10           # ceil
+                sb = b_min // 10                 # floor
+            except Exception:
+                continue
+            sa = max(0, min(143, sa))
+            sb = max(0, min(143, sb))
+            if sa > sb:
+                # wrap em torno da meia-noite
+                mask[sa:] = False
+                mask[:sb + 1] = False
+            else:
+                mask[sa:sb + 1] = False
+            any_valid = True
+        return mask if any_valid else None
+
+    entry_allowed_mask = _parse_blocked_ranges(inp.janelas_bloqueadas)
+    if entry_allowed_mask is None and (inp.janela_entrada_inicio or inp.janela_entrada_fim):
+        # Legacy: janela permitida única (inclusive nos dois lados).
+        entry_allowed_mask = np.zeros(INTERVALS_PER_DAY, dtype=bool)
+        _sa = time_to_slot(inp.janela_entrada_inicio) if inp.janela_entrada_inicio else 0
+        _sb = time_to_slot(inp.janela_entrada_fim)    if inp.janela_entrada_fim    else 143
+        _sa = max(0, min(143, _sa)); _sb = max(0, min(143, _sb))
+        if _sa <= _sb:
+            entry_allowed_mask[_sa:_sb + 1] = True
+        else:
+            entry_allowed_mask[_sa:] = True
+            entry_allowed_mask[:_sb + 1] = True
 
     if inp.min_agentes_intervalo == 0 and not inp.horario_abertura and is_24h:
         _min_hc = 1
@@ -214,8 +261,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         mip_rel_gap      = 0.02,
         min_physical     = _min_hc,
         wrap             = is_24h,
-        entry_first      = entry_first,
-        entry_last       = entry_last,
+        entry_allowed_mask = entry_allowed_mask,
     )
 
     sched_b_sab = pools["sab"]
@@ -317,14 +363,14 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     # ── Status & alerts ───────────────────────────────────────────────
     alertas, status = [], "optimal"
 
-    # Buracos estruturalmente causados pela janela de entrada:
+    # Buracos estruturalmente causados pelas janelas de entrada:
     # um slot `i` com demanda é "inalcançável" quando nenhum slot de entrada
-    # permitido [entry_first, entry_last] cobre `i` (considerando wrap em 24h).
-    # Isso é matemática pura — independe do solver ter overstaffing/undercover.
-    if entry_first is not None or entry_last is not None:
+    # permitido cobre `i` (considerando wrap em 24h). Matemática pura —
+    # independe do solver ter overstaffing/undercover.
+    if entry_allowed_mask is not None:
         from .solver import valid_slots as _vs, coverage_mask as _cm
-        allowed_620 = _vs("6:20", first_slot_op, last_slot_close, is_24h, entry_first, entry_last)
-        allowed_812 = _vs("8:12", first_slot_op, last_slot_close, is_24h, entry_first, entry_last)
+        allowed_620 = _vs("6:20", first_slot_op, last_slot_close, is_24h, entry_allowed_mask)
+        allowed_812 = _vs("8:12", first_slot_op, last_slot_close, is_24h, entry_allowed_mask)
         reachable = np.zeros(INTERVALS_PER_DAY, dtype=bool)
         for s in allowed_620:
             reachable |= _cm("6:20", s, is_24h)
@@ -334,7 +380,6 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         demand_any = (hc_util > 0.5)
         if sab_dias: demand_any |= (hc_sab > 0.5)
         if dom_dias: demand_any |= (hc_dom > 0.5)
-        # Restringe à janela operacional (slots fora dela não contam como buraco)
         if not is_24h:
             demand_any[:first_slot_op] = False
             demand_any[last_slot_close:] = False
@@ -344,12 +389,15 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         if total_gap > 0:
             idx = np.where(unreachable)[0]
             faixa = f"{slot_to_time(int(idx[0]))}–{slot_to_time(int(idx[-1])+1)}"
-            janela_txt = (f"{inp.janela_entrada_inicio or '00:00'}–"
-                          f"{inp.janela_entrada_fim   or '24:00'}")
+            if inp.janelas_bloqueadas:
+                janela_txt = "bloqueio " + " / ".join(inp.janelas_bloqueadas)
+            else:
+                janela_txt = (f"permitido {inp.janela_entrada_inicio or '00:00'}–"
+                              f"{inp.janela_entrada_fim or '24:00'}")
             alertas.append(Alerta("BURACO_POR_JANELA",
-                f"Janela de entrada {janela_txt} deixa {total_gap} slot(s) "
+                f"Janela de entrada ({janela_txt}) deixa {total_gap} slot(s) "
                 f"sem cobertura (faixa {faixa}). "
-                f"Amplie a janela de entrada ou aceite o descoberto nessa faixa."))
+                f"Ajuste as janelas bloqueadas ou aceite o descoberto nessa faixa."))
             status = "constrained"
 
     if sla_mes < inp.sla_target - 0.01:
@@ -414,4 +462,14 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         elapsed_sec=time.time()-t0,
         horario_abertura=inp.horario_abertura or slot_to_time(first_slot_op),
         horario_fechamento=inp.horario_fechamento or slot_to_time(last_slot_close),
+        demanda_curves={
+            "util":    [round(float(x), 2) for x in hc_util],
+            "sabado":  [round(float(x), 2) for x in hc_sab],
+            "domingo": [round(float(x), 2) for x in hc_dom],
+        },
+        cobertura_curves={
+            "util":    [round(float(x), 2) for x in cov_weekday],
+            "sabado":  [round(float(x), 2) for x in cov_saturday],
+            "domingo": [round(float(x), 2) for x in cov_sunday],
+        },
     )
