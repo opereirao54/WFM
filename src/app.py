@@ -9,7 +9,10 @@ from wfm.excel_export import validate_excel, export_resultado_xlsx
 
 app = Flask(__name__)
 
-with open(os.path.join(os.path.dirname(__file__), "interface.html"), encoding="utf-8") as f:
+BASE_DIR = os.path.dirname(__file__)
+HTML_PATH = os.path.join(BASE_DIR, "..", "frontend", "index.html")
+
+with open(HTML_PATH, encoding="utf-8") as f:
     HTML = f.read()
 
 @app.route("/")
@@ -235,7 +238,14 @@ def calcular():
         return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="WFM Engine API Server")
+    parser.add_argument("--port", type=int, default=5000, help="Port to run the server")
+    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host to bind the server")
+    parser.add_argument("--debug", action="store_true", help="Run in debug mode")
+    args = parser.parse_args()
+    
     print("\n" + "="*50)
-    print("  WFM ENGINE  →  http://localhost:5000")
+    print(f"  WFM ENGINE  →  http://{args.host}:{args.port}")
     print("="*50 + "\n")
-    app.run(debug=False, port=5000)
+    app.run(debug=args.debug, host=args.host, port=args.port)
