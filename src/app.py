@@ -101,6 +101,7 @@ def _rebuild_output(data):
         elapsed_sec=data.get("elapsed_sec",0),
         horario_abertura=data.get("horario_abertura",""),
         horario_fechamento=data.get("horario_fechamento",""),
+        pausa_nr17_pct=data.get("pausa_nr17_pct",0),
         demanda_curves=data.get("demanda_curves",{}),
         cobertura_curves=data.get("cobertura_curves",{}),
     )
@@ -238,6 +239,7 @@ def calcular():
             "alertas":[{"codigo":a.codigo,"mensagem":a.mensagem,
                         "hc_adicional_necessario":a.hc_adicional_necessario}
                        for a in out.alertas],
+            "pausa_nr17_pct":   out.pausa_nr17_pct,
             "demanda_curves":   out.demanda_curves,
             "cobertura_curves": out.cobertura_curves,
         })

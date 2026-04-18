@@ -771,6 +771,47 @@ def unified_pool_solve(
             rows.append(row); cols.append(OFF_xdom + j); vals.append(1.0)
         lbs.append(-np.inf); ubs.append(0.0); row += 1
 
+    # ── 3b. Piso físico: ≥ min_physical agentes LOGADOS em cada slot ───
+    # Garante que todos os slots da janela operacional tenham, no mínimo,
+    # `min_physical` pessoas presentes — não importa o pl_efetivo.
+    # Aplica por tipo de dia (util / sáb / dom) e respeita slots fechados.
+    if min_physical > 0:
+        slot_range = range(INTERVALS_PER_DAY) if wrap else range(first_slot, last_slot)
+        # Dia útil: x_sab + x_dom + x_812 cobrindo slot i ≥ min_physical
+        for i in slot_range:
+            added = False
+            for j, s in enumerate(slots_620):
+                if mask_620[s][i]:
+                    rows.append(row); cols.append(OFF_xsab + j); vals.append(1.0)
+                    rows.append(row); cols.append(OFF_xdom + j); vals.append(1.0)
+                    added = True
+            for j, s in enumerate(slots_812):
+                if mask_812[s][i]:
+                    rows.append(row); cols.append(OFF_x812 + j); vals.append(1.0)
+                    added = True
+            if added:
+                lbs.append(float(min_physical)); ubs.append(np.inf); row += 1
+        # Sábado: só x_sab ≥ min_physical
+        if has_sab:
+            for i in slot_range:
+                added = False
+                for j, s in enumerate(slots_620):
+                    if mask_620[s][i]:
+                        rows.append(row); cols.append(OFF_xsab + j); vals.append(1.0)
+                        added = True
+                if added:
+                    lbs.append(float(min_physical)); ubs.append(np.inf); row += 1
+        # Domingo: só x_dom ≥ min_physical
+        if has_dom:
+            for i in slot_range:
+                added = False
+                for j, s in enumerate(slots_620):
+                    if mask_620[s][i]:
+                        rows.append(row); cols.append(OFF_xdom + j); vals.append(1.0)
+                        added = True
+                if added:
+                    lbs.append(float(min_physical)); ubs.append(np.inf); row += 1
+
     # ── 4. Big-M: x_* ≤ M * y_* ─────────────────────────────────────────
     for j in range(n_sab):
         rows += [row, row]; cols += [OFF_xsab+j, OFF_ysab+j]; vals += [1.0, -float(M)]
@@ -1014,6 +1055,25 @@ def _unified_post_trim(
                     if wsla(t_sab,"6:20",pl_620,vol_sab,tmo_sab) < sla_target: continue
                 if pool_name=="dom" and hd.max()>0.01:
                     if wsla(t_dom,"6:20",pl_620,vol_dom,tmo_dom) < sla_target: continue
+
+                # Piso físico mínimo (HC bruto por intervalo) — 3 frentes:
+                #   - util: soma dos 3 pools em slots com demanda útil
+                #   - sab:  só x_sab em slots com demanda de sábado
+                #   - dom:  só x_dom em slots com demanda de domingo
+                if min_physical > 0:
+                    def _phys(sched, shift):
+                        phys = np.zeros(INTERVALS_PER_DAY)
+                        for s2, n2 in sched:
+                            phys[coverage_mask(shift, s2, wrap)] += n2
+                        return phys
+                    phys_u = _phys(t_sab,"6:20") + _phys(t_dom,"6:20") + _phys(t_812,"8:12")
+                    if np.any((hu>0.01) & (phys_u < min_physical)): continue
+                    if hs.max()>0.01:
+                        phys_s = _phys(t_sab,"6:20")
+                        if np.any((hs>0.01) & (phys_s < min_physical)): continue
+                    if hd.max()>0.01:
+                        phys_d = _phys(t_dom,"6:20")
+                        if np.any((hd>0.01) & (phys_d < min_physical)): continue
 
                 # SLA util com o trial
                 cov_t = (coverage_from_schedule(t_sab,"6:20",pl_620, wrap) +

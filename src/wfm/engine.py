@@ -41,7 +41,8 @@ def erlang_curve_day(vol_10m, tmo_10m, t_target, sla_target, min_hc=0,
 
 def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
                             first_slot_op, last_slot_close, pl_eff,
-                            erlang_mode="erlang_c", patience=300.0) -> List[IntervaloOut]:
+                            erlang_mode="erlang_c", patience=300.0,
+                            cov_phys_10m=None, cov_nr17_10m=None) -> List[IntervaloOut]:
     out = []
     for slot in range(INTERVALS_30MIN):
         i0 = slot * 3
@@ -57,29 +58,32 @@ def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
                        (vol_10m[i0:i0+3].sum() + 1e-9))
         cov30  = float(cov_10m[i0:i0+3].mean())
         u_avg  = float(sum(calc_traffic(vol_10m[i0+k], tmo_10m[i0+k]) for k in range(3)) / 3)
-        m_bruto = max(1, math.ceil(cov30)) if cov30 > 0 else 0
-        hc_liq_slot = max(0, round(float(max(
-            min_hc_for_sla_auto(calc_traffic(vol_10m[i0+k], tmo_10m[i0+k]),
-                                t_target, tmo_10m[i0+k], sla_target, erlang_mode, patience)
-            for k in range(3)))))
+        m_line = max(1, math.ceil(cov30)) if cov30 > 0 else 0
 
-        pw   = erlang_c(m_bruto, u_avg) if m_bruto > 0 else 0.0
-        sla  = calc_sla_auto(m_bruto, u_avg, t_target, tmo30, erlang_mode, patience) \
-               if m_bruto > 0 else (1.0 if vol30 == 0 else 0.0)
-        tme  = calc_tme_auto(m_bruto, u_avg, tmo30, erlang_mode, patience) \
-               if m_bruto > 0 else 0.0
-        occ  = calc_occupancy(m_bruto, u_avg) if m_bruto > 0 else 0.0
+        # HC bruto = físico escalado (antes do NR-17); HC líq = após NR-17
+        # Média dos 3 slots de 10min, 2 decimais (sem ceil) — reflete transições dentro do bloco de 30min.
+        cov_phys30 = float(cov_phys_10m[i0:i0+3].mean()) if cov_phys_10m is not None else cov30
+        cov_nr17_30 = float(cov_nr17_10m[i0:i0+3].mean()) if cov_nr17_10m is not None else cov30
+        hc_bruto_iv = round(cov_phys30, 2)
+        hc_liq_iv   = round(cov_nr17_30, 2)
+
+        pw   = erlang_c(m_line, u_avg) if m_line > 0 else 0.0
+        sla  = calc_sla_auto(m_line, u_avg, t_target, tmo30, erlang_mode, patience) \
+               if m_line > 0 else (1.0 if vol30 == 0 else 0.0)
+        tme  = calc_tme_auto(m_line, u_avg, tmo30, erlang_mode, patience) \
+               if m_line > 0 else 0.0
+        occ  = calc_occupancy(m_line, u_avg) if m_line > 0 else 0.0
         ns   = vol30 * sla
         # Erlang A: taxa de abandono estimada para o intervalo
-        p_ab = calc_p_abandon(m_bruto, u_avg, tmo30, patience) \
-               if (erlang_mode == "erlang_a" and m_bruto > 0 and patience > 0) else 0.0
+        p_ab = calc_p_abandon(m_line, u_avg, tmo30, patience) \
+               if (erlang_mode == "erlang_a" and m_line > 0 and patience > 0) else 0.0
 
         out.append(IntervaloOut(
             horario     = HORARIOS[slot],
             volume      = round(vol30, 1),
             tmo         = round(tmo30, 1),
-            hc_liq      = hc_liq_slot,
-            hc_bruto    = round(cov30, 2),
+            hc_liq      = hc_liq_iv,
+            hc_bruto    = hc_bruto_iv,
             trafico_erl = round(u_avg, 3),
             fila_pw     = round(pw, 4),
             tme_seg     = round(tme, 2),
@@ -272,9 +276,27 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     cov_b_dom   = coverage_from_schedule(sched_b_dom, "6:20", pl["6:20"], wrap=is_24h)
     cov_a       = coverage_from_schedule(sched_a,     "8:12", pl["8:12"], wrap=is_24h)
 
+    # HC bruto (físico escalado) por 10min — pl=1.0
+    cov_phys_b_sab = coverage_from_schedule(sched_b_sab, "6:20", 1.0, wrap=is_24h)
+    cov_phys_b_dom = coverage_from_schedule(sched_b_dom, "6:20", 1.0, wrap=is_24h)
+    cov_phys_a     = coverage_from_schedule(sched_a,     "8:12", 1.0, wrap=is_24h)
+
+    # HC líquido (só NR-17 descontado, sem shrinkage) por 10min — pl=pl_base
+    cov_nr17_b_sab = coverage_from_schedule(sched_b_sab, "6:20", pl_base["6:20"], wrap=is_24h)
+    cov_nr17_b_dom = coverage_from_schedule(sched_b_dom, "6:20", pl_base["6:20"], wrap=is_24h)
+    cov_nr17_a     = coverage_from_schedule(sched_a,     "8:12", pl_base["8:12"], wrap=is_24h)
+
     cov_weekday  = cov_b_sab + cov_b_dom + cov_a
     cov_saturday = cov_b_sab
     cov_sunday   = cov_b_dom
+
+    cov_phys_weekday  = cov_phys_b_sab + cov_phys_b_dom + cov_phys_a
+    cov_phys_saturday = cov_phys_b_sab
+    cov_phys_sunday   = cov_phys_b_dom
+
+    cov_nr17_weekday  = cov_nr17_b_sab + cov_nr17_b_dom + cov_nr17_a
+    cov_nr17_saturday = cov_nr17_b_sab
+    cov_nr17_sunday   = cov_nr17_b_dom
 
     n_sab       = schedule_to_total_agents(sched_b_sab)
     n_dom       = schedule_to_total_agents(sched_b_dom)
@@ -286,24 +308,36 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     n_b_dom_liq = round(n_dom * pl["6:20"] / pl_base["6:20"], 1)
 
     # ── Day-by-day output ─────────────────────────────────────────────
-    cov_map   = {"Util": cov_weekday, "Sabado": cov_saturday, "Domingo": cov_sunday}
-    curva_map = {"Util": curva_sem,   "Sabado": curva_sab,    "Domingo": curva_dom}
+    cov_map      = {"Util": cov_weekday,      "Sabado": cov_saturday,      "Domingo": cov_sunday}
+    cov_phys_map = {"Util": cov_phys_weekday, "Sabado": cov_phys_saturday, "Domingo": cov_phys_sunday}
+    cov_nr17_map = {"Util": cov_nr17_weekday, "Sabado": cov_nr17_saturday, "Domingo": cov_nr17_sunday}
+    curva_map    = {"Util": curva_sem,        "Sabado": curva_sab,         "Domingo": curva_dom}
     dias_out: List[DiaOut] = []
 
     all_sla_num = all_vol = all_ns = 0.0
     all_iv_ok = all_iv_tot = 0
+    peak_req_by_data: Dict[str, float] = {}
 
     for dia in dias:
         vol_dia  = volume_from_peso(dia.peso_pct, inp.volume_mes)
         vol_10m, tmo_10m = build_day_curves(vol_dia, curva_map[dia.tipo], inp.tmo_base)
-        cov_10m  = cov_map[dia.tipo]
+        cov_10m       = cov_map[dia.tipo]
+        cov_phys_10m  = cov_phys_map[dia.tipo]
+        cov_nr17_10m  = cov_nr17_map[dia.tipo]
 
         intervalos = compute_day_indicators(
             vol_10m, tmo_10m, cov_10m,
             inp.tempo_target, inp.sla_target,
             first_slot_op, last_slot_close, pl["8:12"],
             emode, patience,
+            cov_phys_10m=cov_phys_10m, cov_nr17_10m=cov_nr17_10m,
         )
+
+        # Pico Erlang (HC líq. requerido) p/ cálculo de overstaffing
+        hc_req_curve, _, _ = erlang_curve_day(
+            vol_10m, tmo_10m, inp.tempo_target, inp.sla_target, 0, emode, patience
+        )
+        peak_req_by_data[dia.data] = float(hc_req_curve.max())
 
         vol_total = sum(iv.volume for iv in intervalos)
         ns_total  = sum(iv.ns     for iv in intervalos)
@@ -312,8 +346,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         occ_med   = sum(iv.volume * iv.ocupacao  for iv in intervalos) / (vol_total + 1e-9)
         fila_med  = sum(iv.volume * iv.fila_pw   for iv in intervalos) / (vol_total + 1e-9)
         tmo_med   = sum(iv.volume * iv.tmo       for iv in intervalos) / (vol_total + 1e-9)
-        hc_liq_max   = max((iv.hc_liq   for iv in intervalos), default=0)
-        hc_bruto_max = max((iv.hc_bruto for iv in intervalos), default=0)
+        hc_liq_max   = round(max((iv.hc_liq   for iv in intervalos), default=0.0), 2)
+        hc_bruto_max = round(max((iv.hc_bruto for iv in intervalos), default=0.0), 2)
         ok_count  = sum(1 for iv in intervalos if iv.sla_pct >= inp.sla_target)
 
         all_sla_num += vol_total * sla_pond
@@ -326,7 +360,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             data=dia.data, dia_semana=_dow(dia.data), tipo=dia.tipo,
             peso_pct=dia.peso_pct, volume_total=round(vol_total,0),
             tmo_medio=round(tmo_med,1), hc_liq_max=hc_liq_max,
-            hc_bruto_max=round(hc_bruto_max,1),
+            hc_bruto_max=hc_bruto_max,
             sla_ponderado=round(sla_pond,4), ns_total=round(ns_total,0),
             tme_medio=round(tme_med,2), ocupacao_media=round(occ_med,4),
             fila_media=round(fila_med,4),
@@ -344,7 +378,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         if not typed: return 0.0
         ratios, vols = [], []
         for _d in typed:
-            peak_req = max((iv.hc_liq for iv in _d.intervalos), default=0)
+            peak_req = peak_req_by_data.get(_d.data, 0.0)
             if peak_req > 0:
                 ratios.append(float(cov_curve.max()) / peak_req)
                 vols.append(_d.volume_total)
@@ -462,6 +496,11 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         elapsed_sec=time.time()-t0,
         horario_abertura=inp.horario_abertura or slot_to_time(first_slot_op),
         horario_fechamento=inp.horario_fechamento or slot_to_time(last_slot_close),
+        pausa_nr17_pct=round(
+            (((1.0 - pl_base["6:20"]) * (n_sab + n_dom)
+              + (1.0 - pl_base["8:12"]) * n_812)
+             / max(1, n_sab + n_dom + n_812)), 4
+        ),
         demanda_curves={
             "util":    [round(float(x), 2) for x in hc_util],
             "sabado":  [round(float(x), 2) for x in hc_sab],
