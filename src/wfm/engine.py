@@ -41,7 +41,8 @@ def erlang_curve_day(vol_10m, tmo_10m, t_target, sla_target, min_hc=0,
 
 def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
                             first_slot_op, last_slot_close, pl_eff,
-                            erlang_mode="erlang_c", patience=300.0) -> List[IntervaloOut]:
+                            erlang_mode="erlang_c", patience=300.0,
+                            cov_phys_10m=None, cov_nr17_10m=None) -> List[IntervaloOut]:
     out = []
     for slot in range(INTERVALS_30MIN):
         i0 = slot * 3
@@ -57,29 +58,31 @@ def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
                        (vol_10m[i0:i0+3].sum() + 1e-9))
         cov30  = float(cov_10m[i0:i0+3].mean())
         u_avg  = float(sum(calc_traffic(vol_10m[i0+k], tmo_10m[i0+k]) for k in range(3)) / 3)
-        m_bruto = max(1, math.ceil(cov30)) if cov30 > 0 else 0
-        hc_liq_slot = max(0, round(float(max(
-            min_hc_for_sla_auto(calc_traffic(vol_10m[i0+k], tmo_10m[i0+k]),
-                                t_target, tmo_10m[i0+k], sla_target, erlang_mode, patience)
-            for k in range(3)))))
+        m_line = max(1, math.ceil(cov30)) if cov30 > 0 else 0
 
-        pw   = erlang_c(m_bruto, u_avg) if m_bruto > 0 else 0.0
-        sla  = calc_sla_auto(m_bruto, u_avg, t_target, tmo30, erlang_mode, patience) \
-               if m_bruto > 0 else (1.0 if vol30 == 0 else 0.0)
-        tme  = calc_tme_auto(m_bruto, u_avg, tmo30, erlang_mode, patience) \
-               if m_bruto > 0 else 0.0
-        occ  = calc_occupancy(m_bruto, u_avg) if m_bruto > 0 else 0.0
+        # HC bruto = físico escalado (antes do NR-17); HC líq = após NR-17
+        cov_phys30 = float(cov_phys_10m[i0:i0+3].mean()) if cov_phys_10m is not None else cov30
+        cov_nr17_30 = float(cov_nr17_10m[i0:i0+3].mean()) if cov_nr17_10m is not None else cov30
+        hc_bruto_iv = int(math.ceil(cov_phys30)) if cov_phys30 > 0 else 0
+        hc_liq_iv   = int(math.ceil(cov_nr17_30)) if cov_nr17_30 > 0 else 0
+
+        pw   = erlang_c(m_line, u_avg) if m_line > 0 else 0.0
+        sla  = calc_sla_auto(m_line, u_avg, t_target, tmo30, erlang_mode, patience) \
+               if m_line > 0 else (1.0 if vol30 == 0 else 0.0)
+        tme  = calc_tme_auto(m_line, u_avg, tmo30, erlang_mode, patience) \
+               if m_line > 0 else 0.0
+        occ  = calc_occupancy(m_line, u_avg) if m_line > 0 else 0.0
         ns   = vol30 * sla
         # Erlang A: taxa de abandono estimada para o intervalo
-        p_ab = calc_p_abandon(m_bruto, u_avg, tmo30, patience) \
-               if (erlang_mode == "erlang_a" and m_bruto > 0 and patience > 0) else 0.0
+        p_ab = calc_p_abandon(m_line, u_avg, tmo30, patience) \
+               if (erlang_mode == "erlang_a" and m_line > 0 and patience > 0) else 0.0
 
         out.append(IntervaloOut(
             horario     = HORARIOS[slot],
             volume      = round(vol30, 1),
             tmo         = round(tmo30, 1),
-            hc_liq      = hc_liq_slot,
-            hc_bruto    = int(math.ceil(cov30)) if cov30 > 0 else 0,
+            hc_liq      = hc_liq_iv,
+            hc_bruto    = hc_bruto_iv,
             trafico_erl = round(u_avg, 3),
             fila_pw     = round(pw, 4),
             tme_seg     = round(tme, 2),
@@ -272,9 +275,27 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     cov_b_dom   = coverage_from_schedule(sched_b_dom, "6:20", pl["6:20"], wrap=is_24h)
     cov_a       = coverage_from_schedule(sched_a,     "8:12", pl["8:12"], wrap=is_24h)
 
+    # HC bruto (físico escalado) por 10min — pl=1.0
+    cov_phys_b_sab = coverage_from_schedule(sched_b_sab, "6:20", 1.0, wrap=is_24h)
+    cov_phys_b_dom = coverage_from_schedule(sched_b_dom, "6:20", 1.0, wrap=is_24h)
+    cov_phys_a     = coverage_from_schedule(sched_a,     "8:12", 1.0, wrap=is_24h)
+
+    # HC líquido (só NR-17 descontado, sem shrinkage) por 10min — pl=pl_base
+    cov_nr17_b_sab = coverage_from_schedule(sched_b_sab, "6:20", pl_base["6:20"], wrap=is_24h)
+    cov_nr17_b_dom = coverage_from_schedule(sched_b_dom, "6:20", pl_base["6:20"], wrap=is_24h)
+    cov_nr17_a     = coverage_from_schedule(sched_a,     "8:12", pl_base["8:12"], wrap=is_24h)
+
     cov_weekday  = cov_b_sab + cov_b_dom + cov_a
     cov_saturday = cov_b_sab
     cov_sunday   = cov_b_dom
+
+    cov_phys_weekday  = cov_phys_b_sab + cov_phys_b_dom + cov_phys_a
+    cov_phys_saturday = cov_phys_b_sab
+    cov_phys_sunday   = cov_phys_b_dom
+
+    cov_nr17_weekday  = cov_nr17_b_sab + cov_nr17_b_dom + cov_nr17_a
+    cov_nr17_saturday = cov_nr17_b_sab
+    cov_nr17_sunday   = cov_nr17_b_dom
 
     n_sab       = schedule_to_total_agents(sched_b_sab)
     n_dom       = schedule_to_total_agents(sched_b_dom)
@@ -286,8 +307,10 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     n_b_dom_liq = round(n_dom * pl["6:20"] / pl_base["6:20"], 1)
 
     # ── Day-by-day output ─────────────────────────────────────────────
-    cov_map   = {"Util": cov_weekday, "Sabado": cov_saturday, "Domingo": cov_sunday}
-    curva_map = {"Util": curva_sem,   "Sabado": curva_sab,    "Domingo": curva_dom}
+    cov_map      = {"Util": cov_weekday,      "Sabado": cov_saturday,      "Domingo": cov_sunday}
+    cov_phys_map = {"Util": cov_phys_weekday, "Sabado": cov_phys_saturday, "Domingo": cov_phys_sunday}
+    cov_nr17_map = {"Util": cov_nr17_weekday, "Sabado": cov_nr17_saturday, "Domingo": cov_nr17_sunday}
+    curva_map    = {"Util": curva_sem,        "Sabado": curva_sab,         "Domingo": curva_dom}
     dias_out: List[DiaOut] = []
 
     all_sla_num = all_vol = all_ns = 0.0
@@ -296,13 +319,16 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     for dia in dias:
         vol_dia  = volume_from_peso(dia.peso_pct, inp.volume_mes)
         vol_10m, tmo_10m = build_day_curves(vol_dia, curva_map[dia.tipo], inp.tmo_base)
-        cov_10m  = cov_map[dia.tipo]
+        cov_10m       = cov_map[dia.tipo]
+        cov_phys_10m  = cov_phys_map[dia.tipo]
+        cov_nr17_10m  = cov_nr17_map[dia.tipo]
 
         intervalos = compute_day_indicators(
             vol_10m, tmo_10m, cov_10m,
             inp.tempo_target, inp.sla_target,
             first_slot_op, last_slot_close, pl["8:12"],
             emode, patience,
+            cov_phys_10m=cov_phys_10m, cov_nr17_10m=cov_nr17_10m,
         )
 
         vol_total = sum(iv.volume for iv in intervalos)
