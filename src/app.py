@@ -158,6 +158,8 @@ def calcular():
             patience_time        = float(fv("patience_time", 300)),
             horario_abertura     = fv("horario_abertura", "").strip(),
             horario_fechamento   = fv("horario_fechamento", "").strip(),
+            janela_entrada_inicio = fv("janela_entrada_inicio", "").strip(),
+            janela_entrada_fim    = fv("janela_entrada_fim", "").strip(),
             min_agentes_intervalo = int(fv("min_agentes", 0)),
             pausas=PausasAdicionais(
                 absenteismo = float(fv("absenteismo", 0.05)),
