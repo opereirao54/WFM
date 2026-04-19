@@ -238,6 +238,9 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
   flex:1;display:flex;flex-direction:column;align-items:center;
   justify-content:center;gap:var(--space-4);color:var(--dim);padding:var(--space-7)
 }
+.empty-illust{
+  margin-bottom:var(--space-3);filter:drop-shadow(0 4px 12px rgba(30,58,138,.08))
+}
 .empty-icon{
   width:80px;height:80px;
   background:linear-gradient(135deg,var(--accent-light) 0%,var(--surface3) 100%);
@@ -247,25 +250,45 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 }
 .empty-icon svg{width:36px;height:36px}
 .empty-cta{
-  margin-top:var(--space-2);padding:10px 18px;
+  margin-top:var(--space-2);padding:11px 20px;
   background:var(--accent);color:#fff;border:none;border-radius:var(--radius-md);
   font-family:var(--sans);font-size:var(--text-base);font-weight:var(--weight-semibold);
   cursor:pointer;transition:all var(--dur-base) var(--ease);
   display:inline-flex;align-items:center;gap:var(--space-2);box-shadow:var(--shadow-accent)
 }
 .empty-cta:hover{transform:translateY(-1px);box-shadow:0 6px 16px rgba(30,58,138,.35)}
+.empty-cta:active{transform:translateY(0)}
 .empty-cta svg{width:14px;height:14px}
 
 /* Loading */
 .loading{flex:1;display:none;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-4)}
+.loading-anim{position:relative;width:60px;height:60px;display:flex;align-items:center;justify-content:center}
+.loading-anim .spinner{position:absolute;inset:0;margin:auto}
+.loading-anim .loading-pulse{position:absolute;inset:0}
 .spinner{
-  width:42px;height:42px;border:3px solid var(--surface3);
+  width:60px;height:60px;border:3px solid var(--surface3);
   border-top-color:var(--accent);border-right-color:var(--accent2);border-radius:var(--radius-full);
-  animation:spin .8s linear infinite
+  animation:spin .9s linear infinite
 }
 @keyframes spin{to{transform:rotate(360deg)}}
-.loading-text{font-size:var(--text-md);color:var(--text);font-weight:var(--weight-semibold)}
+.loading-text{font-size:var(--text-md);color:var(--text);font-weight:var(--weight-semibold);
+  margin-top:var(--space-2)}
 .loading-sub{font-size:var(--text-sm);color:var(--muted)}
+.loading-bar{
+  width:280px;max-width:60vw;height:4px;background:var(--surface3);
+  border-radius:var(--radius-full);overflow:hidden;margin-top:var(--space-3)
+}
+.loading-bar-fill{
+  height:100%;width:30%;
+  background:linear-gradient(90deg,var(--accent) 0%,var(--cta) 100%);
+  border-radius:var(--radius-full);
+  animation:lbar 1.6s ease-in-out infinite
+}
+@keyframes lbar{
+  0%{transform:translateX(-100%);width:30%}
+  50%{width:50%}
+  100%{transform:translateX(380%);width:30%}
+}
 
 /* Results */
 #results{display:none;flex-direction:column;gap:14px}
@@ -897,29 +920,57 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 
 <main id="main">
   <div class="empty" id="empty">
-    <div class="empty-icon">
-      <svg class="ico" viewBox="0 0 24 24" stroke-width="1.6">
-        <path d="M3 3v18h18"/>
-        <path d="M7 14l3-3 3 3 5-6"/>
-        <circle cx="7" cy="14" r="1.4" fill="currentColor"/>
-        <circle cx="10" cy="11" r="1.4" fill="currentColor"/>
-        <circle cx="13" cy="14" r="1.4" fill="currentColor"/>
-        <circle cx="18" cy="8" r="1.4" fill="currentColor"/>
-      </svg>
+    <svg class="empty-illust" viewBox="0 0 240 160" width="240" height="160" fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Background grid -->
+      <g stroke="var(--surface3)" stroke-width="1">
+        <line x1="20" y1="20" x2="220" y2="20"/>
+        <line x1="20" y1="60" x2="220" y2="60"/>
+        <line x1="20" y1="100" x2="220" y2="100"/>
+        <line x1="20" y1="140" x2="220" y2="140"/>
+      </g>
+      <!-- Demand curve (filled area) -->
+      <path d="M20 130 Q 50 110, 70 90 T 110 50 T 150 70 T 190 60 T 220 80 L 220 140 L 20 140 Z"
+            fill="var(--accent-light)" opacity=".7"/>
+      <path d="M20 130 Q 50 110, 70 90 T 110 50 T 150 70 T 190 60 T 220 80"
+            stroke="var(--accent)" stroke-width="2.5" fill="none"/>
+      <!-- Coverage line (dashed coral) -->
+      <path d="M20 115 L 60 100 L 100 75 L 140 75 L 180 75 L 220 95"
+            stroke="var(--cta)" stroke-width="2" stroke-dasharray="4 4" fill="none"/>
+      <!-- Data points -->
+      <g fill="var(--accent)">
+        <circle cx="50" cy="113" r="3"/><circle cx="90" cy="80" r="3"/>
+        <circle cx="130" cy="55" r="3"/><circle cx="170" cy="65" r="3"/>
+        <circle cx="210" cy="78" r="3"/>
+      </g>
+      <!-- HC pulse circles (animated via CSS) -->
+      <circle cx="130" cy="55" r="8" fill="none" stroke="var(--cta)" stroke-width="1.5" opacity=".5">
+        <animate attributeName="r" values="6;14;6" dur="2.5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values=".6;0;.6" dur="2.5s" repeatCount="indefinite"/>
+      </circle>
+    </svg>
+    <div style="font-size:var(--text-xl);font-weight:var(--weight-bold);color:var(--text);text-align:center;letter-spacing:-.3px">Pronto para dimensionar</div>
+    <div style="font-size:var(--text-base);color:var(--muted);text-align:center;max-width:380px;line-height:var(--leading-loose)">
+      Escolha um cenário no topo da barra lateral ou ajuste os parâmetros manualmente. Depois clique em <b style="color:var(--text)">Calcular</b> para gerar a escala otimizada.
     </div>
-    <div style="font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--text);text-align:center">Pronto para dimensionar</div>
-    <div style="font-size:var(--text-base);color:var(--muted);text-align:center;max-width:360px;line-height:var(--leading-loose)">
-      Configure volume, TMO e SLA na barra lateral, escolha um cenário e clique em <b style="color:var(--text)">Calcular</b> para gerar a escala.
-    </div>
-    <button class="empty-cta" onclick="document.getElementById('preset').focus();document.getElementById('preset').click&&document.getElementById('preset').click()">
+    <button class="empty-cta" onclick="document.getElementById('preset').focus()">
       <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
       Começar com um cenário
     </button>
   </div>
   <div class="loading" id="loading">
-    <div class="spinner"></div>
+    <div class="loading-anim">
+      <div class="spinner"></div>
+      <svg class="loading-pulse" viewBox="0 0 60 60" width="60" height="60">
+        <circle cx="30" cy="30" r="6" fill="var(--accent)"/>
+        <circle cx="30" cy="30" r="12" fill="none" stroke="var(--accent)" stroke-width="1.5" opacity=".4">
+          <animate attributeName="r" values="6;22;6" dur="2s" repeatCount="indefinite"/>
+          <animate attributeName="opacity" values=".5;0;.5" dur="2s" repeatCount="indefinite"/>
+        </circle>
+      </svg>
+    </div>
     <div class="loading-text" id="ltxt">Calculando Erlang C...</div>
     <div class="loading-sub" id="lsub">Aguarde</div>
+    <div class="loading-bar"><div class="loading-bar-fill" id="lbar"></div></div>
   </div>
   <div id="view-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
     <div class="view-tabs">
@@ -1934,8 +1985,22 @@ async function renderSalvos(){
     const tree = j.tree || {};
     const ops = Object.keys(tree).sort();
     if(!ops.length){
-      box.innerHTML = `<div class="card"><div style="padding:24px;text-align:center;color:var(--dim)">
-        Nenhum dimensionamento salvo ainda. Após calcular, clique em <b>Salvar</b> na aba Resultados.</div></div>`;
+      box.innerHTML = `<div class="card" style="padding:48px 24px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center">
+          <div style="width:72px;height:72px;background:linear-gradient(135deg,var(--accent-light) 0%,var(--surface3) 100%);
+                      border-radius:var(--radius-2xl);display:flex;align-items:center;justify-content:center;
+                      color:var(--accent);box-shadow:var(--shadow-sm)">
+            <svg class="ico" width="32" height="32" viewBox="0 0 24 24" stroke-width="1.6">
+              <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/>
+              <path d="M17 21v-8H7v8M7 3v5h8"/>
+            </svg>
+          </div>
+          <div style="font-size:var(--text-lg);font-weight:var(--weight-bold);color:var(--text)">Nenhum dimensionamento salvo</div>
+          <div style="font-size:var(--text-base);color:var(--muted);max-width:340px;line-height:var(--leading-loose)">
+            Depois de calcular um cenário, clique em <b style="color:var(--text)">Salvar</b> no card "Dimensionamento Dia a Dia" para arquivar aqui.
+          </div>
+        </div>
+      </div>`;
       return;
     }
     let html = '';
