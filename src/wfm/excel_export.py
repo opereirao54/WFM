@@ -106,18 +106,19 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
 
     wb = openpyxl.Workbook()
 
-    # Styles
-    h_fill  = PatternFill("solid", fgColor="0e1117")
-    h_font  = Font(bold=True, color="4f9cf9", size=10)
-    ok_font = Font(color="a6e3a1", size=10)
-    bad_font= Font(color="f38ba8", size=10)
-    mut_font= Font(color="6c7a96", size=10)
-    dat_font= Font(color="cdd6f4", size=10)
-    tot_fill= PatternFill("solid", fgColor="1a2030")
-    tot_font= Font(bold=True, color="f9e2af", size=10)
-    bd = Side(style="thin", color="1e2535")
+    # Styles — paleta clara com alto contraste p/ leitura em tela e impressão
+    h_fill  = PatternFill("solid", fgColor="1f4e79")
+    h_font  = Font(bold=True, color="FFFFFF", size=11)
+    ok_col  = "006100"
+    bad_col = "9C0006"
+    dat_col = "000000"
+    tot_fill= PatternFill("solid", fgColor="FFF2CC")
+    tot_font= Font(bold=True, color="000000", size=11)
+    dat_font= Font(color=dat_col, size=11)
+    alt_fill= PatternFill("solid", fgColor="F2F2F2")
+    bd = Side(style="thin", color="808080")
     bdr = Border(left=bd, right=bd, top=bd, bottom=bd)
-    ctr = Alignment(horizontal="center")
+    ctr = Alignment(horizontal="center", vertical="center")
 
     def hdr(cell, text):
         cell.value=text; cell.font=h_font; cell.fill=h_fill
@@ -125,7 +126,7 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
 
     def dat(cell, value, color=None):
         cell.value=value
-        cell.font=Font(color=color or "cdd6f4", size=10)
+        cell.font=Font(color=color or dat_col, size=11)
         cell.alignment=ctr; cell.border=bdr
 
     # ── Sheet 1: Resumo Mensal ────────────────────────────────────────
@@ -135,9 +136,9 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
 
     # Header info
     ws1['A1'] = f"WFM Engine — Dimensionamento {out.mes:02d}/{out.ano}"
-    ws1['A1'].font = Font(bold=True, color="4f9cf9", size=12)
+    ws1['A1'].font = Font(bold=True, color="1f4e79", size=14)
     ws1['A2'] = f"SLA Mensal: {out.sla_ponderado_mes*100:.1f}%  |  HC Bruto Total: {out.hc_fisico['total']}  |  Volume: {out.volume_total_mes:,.0f}  |  NS: {out.ns_total_mes:,.0f}"
-    ws1['A2'].font = Font(color="f9e2af", size=10)
+    ws1['A2'].font = Font(bold=True, color="000000", size=11)
 
     # Pool summary
     ws1['A4'] = "POOL"; ws1['B4'] = "TIPO"; ws1['C4'] = "HC BRUTO"; ws1['D4'] = "HC LÍQUIDO REF"
@@ -145,17 +146,17 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
     for col in "ABCDEF":
         hdr(ws1[f'{col}4'], ws1[f'{col}4'].value)
     rows_pool = [
-        ("Pool A","8:12",out.hc_fisico["pool_a"],out.hc_liquido_ref["pool_a"],out.pl_efetivo["8:12_base"],out.pl_efetivo["8:12"]),
-        ("Pool B-Sáb","6:20",out.hc_fisico["pool_b_sab"],out.hc_liquido_ref["pool_b_sab"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("Pool B-Dom","6:20",out.hc_fisico["pool_b_dom"],out.hc_liquido_ref["pool_b_dom"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("Pool B-Extra","6:20",out.hc_fisico["pool_b_extra"],out.hc_liquido_ref["pool_b_extra"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("TOTAL","—",out.hc_fisico["total"],out.hc_liquido_ref["total"],"—","—"),
+        ("Pool 8:12","8:12",out.hc_fisico.get("pool_812",0),out.hc_liquido_ref.get("pool_812",0),out.pl_efetivo.get("8:12_base","—"),out.pl_efetivo.get("8:12","—")),
+        ("Pool B-Sáb","6:20",out.hc_fisico.get("pool_b_sab",0),out.hc_liquido_ref.get("pool_b_sab",0),out.pl_efetivo.get("6:20_base","—"),out.pl_efetivo.get("6:20","—")),
+        ("Pool B-Dom","6:20",out.hc_fisico.get("pool_b_dom",0),out.hc_liquido_ref.get("pool_b_dom",0),out.pl_efetivo.get("6:20_base","—"),out.pl_efetivo.get("6:20","—")),
+        ("TOTAL","—",out.hc_fisico.get("total",0),out.hc_liquido_ref.get("total",0),"—","—"),
     ]
     for i, r in enumerate(rows_pool, 5):
         for j, v in enumerate(r, 1):
             c = ws1.cell(row=i, column=j, value=v)
             c.font = tot_font if r[0]=="TOTAL" else dat_font
-            c.fill = tot_fill if r[0]=="TOTAL" else PatternFill("solid", fgColor="0e1117")
+            if r[0]=="TOTAL":
+                c.fill = tot_fill
             c.alignment = ctr; c.border = bdr
 
     # Day summary table
@@ -170,14 +171,16 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
                 round(d.sla_ponderado*100,1), d.ns_total, d.tme_medio,
                 round(d.ocupacao_media*100,1), round(d.fila_media*100,1),
                 round(d.intervalos_ok_pct*100,1),
-                "✓ OK" if d.status_sla=="ok" else "✗ Abaixo"]
+                "OK" if d.status_sla=="ok" else "Abaixo"]
+        zebra = (i % 2 == 0)
         for j, v in enumerate(vals, 1):
             c = ws1.cell(row=i, column=j, value=v)
             c.alignment = ctr; c.border = bdr
+            if zebra: c.fill = alt_fill
             if j == 14:
-                c.font = Font(color="a6e3a1" if d.status_sla=="ok" else "f38ba8", size=10)
+                c.font = Font(bold=True, color=ok_col if d.status_sla=="ok" else bad_col, size=11)
             elif j == 8:
-                c.font = Font(color="a6e3a1" if d.sla_ponderado >= out.sla_target else "f38ba8", size=10)
+                c.font = Font(bold=True, color=ok_col if d.sla_ponderado >= out.sla_target else bad_col, size=11)
             else:
                 c.font = dat_font
 
@@ -187,7 +190,7 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
               out.volume_total_mes, "—", "—", "—",
               round(out.sla_ponderado_mes*100,1), out.ns_total_mes, "—","—","—",
               round((out.intervalos_ok_pct or 0)*100,1) if out.intervalos_ok_pct else "—",
-              "✓ OK" if out.sla_ponderado_mes >= out.sla_target else "✗ Abaixo"]
+              "OK" if out.sla_ponderado_mes >= out.sla_target else "Abaixo"]
     for j, v in enumerate(totals, 1):
         c = ws1.cell(row=tot_row, column=j, value=v)
         c.font = tot_font; c.fill = tot_fill; c.alignment = ctr; c.border = bdr
@@ -203,33 +206,53 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
     for j, h in enumerate(["POOL","TIPO","ENTRADA","SAÍDA","HC BRUTO","HC LÍQUIDO REF"], 1):
         hdr(ws2.cell(row=1, column=j), h)
     for i, t in enumerate(out.turnos, 2):
+        zebra = (i % 2 == 0)
         for j, v in enumerate([t.pool,t.tipo,t.entrada,t.saida,t.agentes_bruto,t.agentes_liq], 1):
             c = ws2.cell(row=i, column=j, value=v); c.font=dat_font; c.alignment=ctr; c.border=bdr
+            if zebra: c.fill = alt_fill
     for col in ws2.columns:
-        ws2.column_dimensions[get_column_letter(col[0].column)].width = 16
+        ws2.column_dimensions[get_column_letter(col[0].column)].width = 18
 
-    # ── Sheet 3+: Detail per day ──────────────────────────────────────
-    cols_iv = ["HORÁRIO","VOLUME","TMO(s)","HC LÍQUIDO","HC BRUTO","TRÁFEGO(Erl)","FILA(Pw%)","TME(s)","OCUPAÇÃO%","SLA%","NS","STATUS"]
-    for dia in out.dias:
+    # ── Sheet 3: Detalhe por Intervalo (todos os dias em uma única aba) ──
+    ws = wb.create_sheet("Detalhe Intervalos")
+    ws.sheet_view.showGridLines = False
+    ws.freeze_panes = "A2"
+    cols_iv = ["DATA","DIA","TIPO","HORÁRIO","VOLUME","TMO(s)","HC LÍQUIDO","HC BRUTO",
+               "TRÁFEGO(Erl)","FILA(Pw%)","TME(s)","OCUPAÇÃO%","SLA%","NS","STATUS"]
+    for j, h in enumerate(cols_iv, 1):
+        hdr(ws.cell(row=1, column=j), h)
+    row = 2
+    for di, dia in enumerate(out.dias):
         if not dia.intervalos: continue
-        ws = wb.create_sheet(f"{dia.data}")
-        ws.sheet_view.showGridLines = False
-        ws['A1'] = f"{dia.data} {dia.dia_semana} — Vol: {dia.volume_total:,.0f}  SLA: {dia.sla_ponderado*100:.1f}%  NS: {dia.ns_total:,.0f}"
-        ws['A1'].font = Font(bold=True, color="4f9cf9", size=11)
-        for j, h in enumerate(cols_iv, 1):
-            hdr(ws.cell(row=2, column=j), h)
-        for i, iv in enumerate(dia.intervalos, 3):
+        day_fill = PatternFill("solid", fgColor="FFF2CC" if di % 2 == 0 else "FCE4D6")
+        # Cabeçalho do dia
+        c = ws.cell(row=row, column=1,
+                    value=f"{dia.data} {dia.dia_semana} · {dia.tipo} · Vol {dia.volume_total:,.0f} · SLA {dia.sla_ponderado*100:.1f}% · NS {dia.ns_total:,.0f}")
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=len(cols_iv))
+        c.font = Font(bold=True, color="1f4e79", size=12)
+        c.fill = day_fill
+        c.alignment = Alignment(horizontal="left", vertical="center")
+        row += 1
+        for iv in dia.intervalos:
             ok = iv.sla_pct >= out.sla_target
-            vals = [iv.horario, iv.volume, iv.tmo, iv.hc_liq, iv.hc_bruto,
+            vals = [dia.data, dia.dia_semana, dia.tipo,
+                    iv.horario, iv.volume, iv.tmo, iv.hc_liq, iv.hc_bruto,
                     iv.trafico_erl, round(iv.fila_pw*100,2), iv.tme_seg,
                     round(iv.ocupacao*100,2), round(iv.sla_pct*100,2), iv.ns,
-                    "✓" if ok else "✗"]
+                    "OK" if ok else "Abaixo"]
+            zebra = (row % 2 == 0)
             for j, v in enumerate(vals, 1):
-                c = ws.cell(row=i, column=j, value=v)
-                c.font = Font(color=("a6e3a1" if ok else "f38ba8") if j in (10,12) else "cdd6f4", size=10)
+                c = ws.cell(row=row, column=j, value=v)
+                if j in (13, 15):
+                    c.font = Font(bold=True, color=ok_col if ok else bad_col, size=11)
+                else:
+                    c.font = dat_font
                 c.alignment = ctr; c.border = bdr
-        for col in ws.columns:
-            ws.column_dimensions[get_column_letter(col[0].column)].width = 14
+                if zebra: c.fill = alt_fill
+            row += 1
+    widths = [12,8,10,10,10,9,12,11,13,11,10,13,10,10,12]
+    for j, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
 
     buf = io.BytesIO()
     wb.save(buf)

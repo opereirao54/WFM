@@ -39,4 +39,7 @@ Thumbs.db
 # Testing
 .pytest_cache/
 .mypy_cache/
+
+# Dimensionamentos salvos (dados do usuário)
+saved/
 ```

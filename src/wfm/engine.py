@@ -24,8 +24,8 @@ def _dow(data_str):
 
 
 def erlang_curve_day(vol_10m, tmo_10m, t_target, sla_target, min_hc=0,
-                     erlang_mode="erlang_c", patience=300.0):
-    """Curva de HC mínimo por slot de 10min usando Erlang C ou A."""
+                     erlang_mode="erlang_c", patience=300.0, retry_rate=0.30):
+    """Curva de HC mínimo por slot de 10min usando Erlang C, A ou X."""
     hc = np.zeros(INTERVALS_PER_DAY)
     sla = np.zeros(INTERVALS_PER_DAY)
     traf = np.zeros(INTERVALS_PER_DAY)
@@ -33,16 +33,17 @@ def erlang_curve_day(vol_10m, tmo_10m, t_target, sla_target, min_hc=0,
         u = calc_traffic(vol_10m[i], tmo_10m[i])
         traf[i] = u
         m = max(min_hc, min_hc_for_sla_auto(u, t_target, tmo_10m[i], sla_target,
-                                             erlang_mode, patience))
+                                             erlang_mode, patience, retry_rate))
         hc[i] = m
-        sla[i] = calc_sla_auto(m, u, t_target, tmo_10m[i], erlang_mode, patience)
+        sla[i] = calc_sla_auto(m, u, t_target, tmo_10m[i], erlang_mode, patience, retry_rate)
     return hc, sla, traf
 
 
 def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
                             first_slot_op, last_slot_close, pl_eff,
                             erlang_mode="erlang_c", patience=300.0,
-                            cov_phys_10m=None, cov_nr17_10m=None) -> List[IntervaloOut]:
+                            cov_phys_10m=None, cov_nr17_10m=None,
+                            retry_rate=0.30) -> List[IntervaloOut]:
     out = []
     for slot in range(INTERVALS_30MIN):
         i0 = slot * 3
@@ -68,15 +69,20 @@ def compute_day_indicators(vol_10m, tmo_10m, cov_10m, t_target, sla_target,
         hc_liq_iv   = round(cov_nr17_30, 2)
 
         pw   = erlang_c(m_line, u_avg) if m_line > 0 else 0.0
-        sla  = calc_sla_auto(m_line, u_avg, t_target, tmo30, erlang_mode, patience) \
+        sla  = calc_sla_auto(m_line, u_avg, t_target, tmo30, erlang_mode, patience, retry_rate) \
                if m_line > 0 else (1.0 if vol30 == 0 else 0.0)
-        tme  = calc_tme_auto(m_line, u_avg, tmo30, erlang_mode, patience) \
+        tme  = calc_tme_auto(m_line, u_avg, tmo30, erlang_mode, patience, retry_rate) \
                if m_line > 0 else 0.0
         occ  = calc_occupancy(m_line, u_avg) if m_line > 0 else 0.0
         ns   = vol30 * sla
-        # Erlang A: taxa de abandono estimada para o intervalo
-        p_ab = calc_p_abandon(m_line, u_avg, tmo30, patience) \
-               if (erlang_mode == "erlang_a" and m_line > 0 and patience > 0) else 0.0
+        # Erlang A / X: taxa de abandono estimada para o intervalo
+        p_ab = 0.0
+        if m_line > 0 and patience > 0:
+            if erlang_mode == "erlang_a":
+                p_ab = calc_p_abandon(m_line, u_avg, tmo30, patience)
+            elif erlang_mode == "erlang_x":
+                from .erlang import calc_p_abandon_x
+                p_ab = calc_p_abandon_x(m_line, u_avg, tmo30, patience, retry_rate)
 
         out.append(IntervaloOut(
             horario     = HORARIOS[slot],
@@ -100,6 +106,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
 
     emode   = inp.erlang_mode
     patience = inp.patience_time
+    retry_rate = getattr(inp, "retry_rate", 0.30)
 
     # ── Shrinkage & PL ────────────────────────────────────────────────
     shrink = inp.pausas.total
@@ -233,11 +240,11 @@ def run_engine(inp: WFMInput) -> WFMOutput:
 
     # ── Erlang curves ─────────────────────────────────────────────────
     hc_util, _, _ = erlang_curve_day(vol_util_10m, tmo_util_10m, inp.tempo_target,
-                                      inp.sla_target, _min_hc, emode, patience)
+                                      inp.sla_target, _min_hc, emode, patience, retry_rate)
     hc_sab,  _, _ = erlang_curve_day(vol_sab_10m,  tmo_sab_10m,  inp.tempo_target,
-                                      inp.sla_target, _min_hc, emode, patience)
+                                      inp.sla_target, _min_hc, emode, patience, retry_rate)
     hc_dom,  _, _ = erlang_curve_day(vol_dom_10m,  tmo_dom_10m,  inp.tempo_target,
-                                      inp.sla_target, _min_hc, emode, patience)
+                                      inp.sla_target, _min_hc, emode, patience, retry_rate)
 
     # ── Fix 24h: unificar curvas de fim de semana ─────────────────────
     # Garante cobertura completa em operações 24h e elimina gaps entre
@@ -266,6 +273,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         min_physical     = _min_hc,
         wrap             = is_24h,
         entry_allowed_mask = entry_allowed_mask,
+        allow_shift_620    = inp.allow_shift_620,
+        allow_shift_812    = inp.allow_shift_812,
     )
 
     sched_b_sab = pools["sab"]
@@ -331,11 +340,12 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             first_slot_op, last_slot_close, pl["8:12"],
             emode, patience,
             cov_phys_10m=cov_phys_10m, cov_nr17_10m=cov_nr17_10m,
+            retry_rate=retry_rate,
         )
 
         # Pico Erlang (HC líq. requerido) p/ cálculo de overstaffing
         hc_req_curve, _, _ = erlang_curve_day(
-            vol_10m, tmo_10m, inp.tempo_target, inp.sla_target, 0, emode, patience
+            vol_10m, tmo_10m, inp.tempo_target, inp.sla_target, 0, emode, patience, retry_rate
         )
         peak_req_by_data[dia.data] = float(hc_req_curve.max())
 
@@ -453,7 +463,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             f"Intervalos OK: {floor_pct*100:.1f}%.", hc_ad))
     if status == "optimal":
         dias_abaixo = sum(1 for d in dias_out if d.status_sla=="abaixo")
-        modelo_tag = f"[{emode.upper()}]" if emode == "erlang_a" else ""
+        modelo_tag = f"[{emode.upper()}]" if emode in ("erlang_a","erlang_x") else ""
         alertas.append(Alerta("OPTIMAL",
             f"{modelo_tag} SLA mensal {sla_mes*100:.1f}% ✓ | "
             f"{dias_abaixo} dia(s) abaixo do SLA individual | "

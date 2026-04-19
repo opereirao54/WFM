@@ -57,9 +57,10 @@ class WFMInput:
     max_overstaffing:     float = 0.20
     max_horarios_entrada: int   = 6
     solver_mode:          str   = "heuristic"
-    # ── Erlang A ──────────────────────────────────────────────────────
-    erlang_mode:          str   = "erlang_c"   # "erlang_c" | "erlang_a"
-    patience_time:        float = 300.0        # segundos — relevante só p/ Erlang A
+    # ── Erlang A / X ──────────────────────────────────────────────────
+    erlang_mode:          str   = "erlang_c"   # "erlang_c" | "erlang_a" | "erlang_x"
+    patience_time:        float = 300.0        # segundos — relevante p/ Erlang A e X
+    retry_rate:           float = 0.30         # fração de abandonos que rechamam — só Erlang X
     # ── Horários ──────────────────────────────────────────────────────
     pausas: PausasAdicionais    = field(default_factory=PausasAdicionais)
     horario_abertura:     str   = ""
@@ -86,6 +87,10 @@ class WFMInput:
     # Dias ausentes desta lista recebem volume zero e não entram na escala.
     dias_funcionamento: List[str] = field(default_factory=lambda:
         ["seg","ter","qua","qui","sex","sab","dom"])
+    # ── Tipos de turno permitidos ─────────────────────────────────────
+    # Padrão: ambos. Quando False, o solver não usa aquele turno.
+    allow_shift_620: bool = True
+    allow_shift_812: bool = True
 
 @dataclass
 class IntervaloOut:

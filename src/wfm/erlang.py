@@ -175,24 +175,92 @@ def min_hc_for_sla_a(u: float, t_target: float, tmo: float, sla_target: float,
     return m
 
 
+# ── Erlang X (M/M/c+M com rechamada/retrial) ──────────────────────────────
+# Estende Erlang A: uma fração `retry_rate` dos abandonos tenta novamente
+# dentro do mesmo intervalo. Resolve por ponto-fixo sobre o tráfego efetivo:
+#   u_eff = u_base / (1 - retry_rate * P_aband(u_eff))
+# Quando retry_rate = 0 recai em Erlang A. Quando patience → ∞ recai em C.
+
+DEFAULT_RETRY_RATE = 0.30   # 30% dos abandonos retornam (padrão do mercado)
+
+def _erlang_x_ueff(m: int, u_base: float, tmo: float, patience: float,
+                   retry_rate: float, max_iter: int = 12, tol: float = 1e-4) -> float:
+    if u_base <= 0 or m <= 0: return u_base
+    if retry_rate <= 0 or patience <= 0 or patience > 9000:
+        return u_base
+    u = u_base
+    gamma = tmo / patience
+    for _ in range(max_iter):
+        p = _erlang_a_states(m, u, gamma)
+        if not p: return u
+        aband_sum = sum((n - m) * p[n] for n in range(m + 1, len(p)))
+        p_aband = min(1.0, max(0.0, gamma * aband_sum / u)) if u > 0 else 0.0
+        denom = max(1e-9, 1.0 - retry_rate * p_aband)
+        u_new = u_base / denom
+        if abs(u_new - u) < tol: break
+        u = u_new
+    return u
+
+
+def calc_sla_x(m: int, u: float, t_target: float, tmo: float,
+               patience: float, retry_rate: float = DEFAULT_RETRY_RATE) -> float:
+    u_eff = _erlang_x_ueff(m, u, tmo, patience, retry_rate)
+    return calc_sla_a(m, u_eff, t_target, tmo, patience)
+
+
+def calc_tme_x(m: int, u: float, tmo: float,
+               patience: float, retry_rate: float = DEFAULT_RETRY_RATE) -> float:
+    u_eff = _erlang_x_ueff(m, u, tmo, patience, retry_rate)
+    return calc_tme_a(m, u_eff, tmo, patience)
+
+
+def calc_p_abandon_x(m: int, u: float, tmo: float,
+                     patience: float, retry_rate: float = DEFAULT_RETRY_RATE) -> float:
+    u_eff = _erlang_x_ueff(m, u, tmo, patience, retry_rate)
+    return calc_p_abandon(m, u_eff, tmo, patience)
+
+
+def min_hc_for_sla_x(u: float, t_target: float, tmo: float, sla_target: float,
+                     patience: float, retry_rate: float = DEFAULT_RETRY_RATE) -> int:
+    if u <= 0: return 0
+    if retry_rate <= 0 or patience <= 0 or patience > 9000:
+        return min_hc_for_sla_a(u, t_target, tmo, sla_target, patience)
+    # Começa acima do tráfego base e sobe (u_eff ≥ u_base)
+    m = max(1, math.ceil(u) + 1)
+    for _ in range(500):
+        if calc_sla_x(m, u, t_target, tmo, patience, retry_rate) >= sla_target:
+            return m
+        m += 1
+    return m
+
+
 # ── Wrappers automáticos (erlang_mode) ────────────────────────────────────
 
 def calc_sla_auto(m: int, u: float, t_target: float, tmo: float,
-                  erlang_mode: str = "erlang_c", patience: float = 300.0) -> float:
+                  erlang_mode: str = "erlang_c", patience: float = 300.0,
+                  retry_rate: float = DEFAULT_RETRY_RATE) -> float:
+    if erlang_mode == "erlang_x" and patience > 0:
+        return calc_sla_x(m, u, t_target, tmo, patience, retry_rate)
     if erlang_mode == "erlang_a" and patience > 0:
         return calc_sla_a(m, u, t_target, tmo, patience)
     return calc_sla(m, u, t_target, tmo)
 
 
 def calc_tme_auto(m: int, u: float, tmo: float,
-                  erlang_mode: str = "erlang_c", patience: float = 300.0) -> float:
+                  erlang_mode: str = "erlang_c", patience: float = 300.0,
+                  retry_rate: float = DEFAULT_RETRY_RATE) -> float:
+    if erlang_mode == "erlang_x" and patience > 0:
+        return calc_tme_x(m, u, tmo, patience, retry_rate)
     if erlang_mode == "erlang_a" and patience > 0:
         return calc_tme_a(m, u, tmo, patience)
     return calc_tme(m, u, tmo)
 
 
 def min_hc_for_sla_auto(u: float, t_target: float, tmo: float, sla_target: float,
-                         erlang_mode: str = "erlang_c", patience: float = 300.0) -> int:
+                         erlang_mode: str = "erlang_c", patience: float = 300.0,
+                         retry_rate: float = DEFAULT_RETRY_RATE) -> int:
+    if erlang_mode == "erlang_x" and patience > 0:
+        return min_hc_for_sla_x(u, t_target, tmo, sla_target, patience, retry_rate)
     if erlang_mode == "erlang_a" and patience > 0:
         return min_hc_for_sla_a(u, t_target, tmo, sla_target, patience)
     return min_hc_for_sla(u, t_target, tmo, sla_target)

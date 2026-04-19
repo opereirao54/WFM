@@ -1,4 +1,4 @@
-import sys, os, io, json
+import sys, os, io, json, re, time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from flask import Flask, request, jsonify, send_file
@@ -11,6 +11,22 @@ app = Flask(__name__)
 
 BASE_DIR = os.path.dirname(__file__)
 HTML_PATH = os.path.join(BASE_DIR, "..", "frontend", "index.html")
+SAVED_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "saved"))
+os.makedirs(SAVED_DIR, exist_ok=True)
+
+_UNSAFE_NAME = re.compile(r"[\x00-\x1f/\\:*?\"<>|]+")
+def _slug(s: str, fallback: str = "sem_nome") -> str:
+    s = (s or "").strip()
+    s = _UNSAFE_NAME.sub("", s).strip().replace(" ", "_")
+    # remove leading dots e espaços
+    s = s.lstrip(". ")
+    return s[:60] or fallback
+
+def _safe_saved_path(*parts: str) -> str:
+    p = os.path.abspath(os.path.join(SAVED_DIR, *parts))
+    if not p.startswith(SAVED_DIR + os.sep) and p != SAVED_DIR:
+        raise ValueError("caminho fora do diretório de salvamentos")
+    return p
 
 with open(HTML_PATH, encoding="utf-8") as f:
     HTML = f.read()
@@ -159,6 +175,7 @@ def calcular():
             solver_mode          = fv("solver_mode", "heuristic"),
             erlang_mode          = fv("erlang_mode", "erlang_c"),
             patience_time        = float(fv("patience_time", 300)),
+            retry_rate           = float(fv("retry_rate", 0.30)),
             horario_abertura     = fv("horario_abertura", "").strip(),
             horario_fechamento   = fv("horario_fechamento", "").strip(),
             janela_entrada_inicio = fv("janela_entrada_inicio", "").strip(),
@@ -183,6 +200,8 @@ def calcular():
             dias_funcionamento = [s.strip().lower() for s in
                 fv("dias_funcionamento", "seg,ter,qua,qui,sex,sab,dom").split(",")
                 if s.strip()],
+            allow_shift_620 = str(fv("allow_shift_620","true")).lower() in ("1","true","on","yes"),
+            allow_shift_812 = str(fv("allow_shift_812","true")).lower() in ("1","true","on","yes"),
         )
 
         out = run_engine(inp)
@@ -246,6 +265,110 @@ def calcular():
     except Exception as e:
         import traceback
         return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
+
+# ── Dimensionamentos salvos ───────────────────────────────────────────
+@app.route("/saved", methods=["GET"])
+def saved_list():
+    """Lista a árvore de dimensionamentos salvos: operação → ano_mes → registros."""
+    tree = {}
+    try:
+        for op in sorted(os.listdir(SAVED_DIR)):
+            op_dir = _safe_saved_path(op)
+            if not os.path.isdir(op_dir): continue
+            tree[op] = {}
+            for ym in sorted(os.listdir(op_dir)):
+                ym_dir = _safe_saved_path(op, ym)
+                if not os.path.isdir(ym_dir): continue
+                regs = []
+                for fn in sorted(os.listdir(ym_dir)):
+                    if not fn.endswith(".json"): continue
+                    fp = _safe_saved_path(op, ym, fn)
+                    try:
+                        st = os.stat(fp)
+                        regs.append({
+                            "nome": fn[:-5],
+                            "rel_path": f"{op}/{ym}/{fn}",
+                            "modified_at": int(st.st_mtime),
+                            "size": st.st_size,
+                        })
+                    except OSError:
+                        pass
+                tree[op][ym] = regs
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+    return jsonify({"tree": tree})
+
+
+@app.route("/saved", methods=["POST"])
+def saved_save():
+    """Salva um dimensionamento em saved/<operacao>/<ano_mes>/<nome>.json"""
+    try:
+        data = request.get_json(force=True) or {}
+        operacao = _slug(data.get("operacao"), "operacao")
+        ano_mes  = _slug(data.get("ano_mes"), "000000")
+        if not re.fullmatch(r"\d{6}", ano_mes):
+            return jsonify({"erro": "ano_mes deve estar no formato AAAAMM (ex.: 202608)"}), 400
+        nome = _slug(data.get("nome") or f"dim_{int(time.time())}", "dim")
+        payload = data.get("payload")
+        if not isinstance(payload, dict):
+            return jsonify({"erro": "payload inválido"}), 400
+
+        op_dir = _safe_saved_path(operacao, ano_mes)
+        os.makedirs(op_dir, exist_ok=True)
+        fp = _safe_saved_path(operacao, ano_mes, nome + ".json")
+
+        to_write = {
+            "operacao": operacao,
+            "ano_mes": ano_mes,
+            "nome": nome,
+            "saved_at": int(time.time()),
+            "fields": payload.get("fields") or {},
+            "result": payload.get("result") or {},
+        }
+        with open(fp, "w", encoding="utf-8") as f:
+            json.dump(to_write, f, ensure_ascii=False)
+        return jsonify({"ok": True, "rel_path": f"{operacao}/{ano_mes}/{nome}.json"})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+@app.route("/saved/load", methods=["GET"])
+def saved_load():
+    rel = request.args.get("path", "")
+    try:
+        parts = [p for p in rel.split("/") if p]
+        if len(parts) != 3 or not parts[2].endswith(".json"):
+            return jsonify({"erro": "caminho inválido"}), 400
+        fp = _safe_saved_path(*parts)
+        if not os.path.isfile(fp):
+            return jsonify({"erro": "não encontrado"}), 404
+        with open(fp, "r", encoding="utf-8") as f:
+            return jsonify(json.load(f))
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+@app.route("/saved", methods=["DELETE"])
+def saved_delete():
+    rel = request.args.get("path", "")
+    try:
+        parts = [p for p in rel.split("/") if p]
+        if len(parts) != 3 or not parts[2].endswith(".json"):
+            return jsonify({"erro": "caminho inválido"}), 400
+        fp = _safe_saved_path(*parts)
+        if os.path.isfile(fp):
+            os.remove(fp)
+        # cleanup empty dirs
+        ym_dir = _safe_saved_path(parts[0], parts[1])
+        if os.path.isdir(ym_dir) and not os.listdir(ym_dir):
+            os.rmdir(ym_dir)
+        op_dir = _safe_saved_path(parts[0])
+        if os.path.isdir(op_dir) and not os.listdir(op_dir):
+            os.rmdir(op_dir)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
 
 if __name__ == "__main__":
     import argparse
