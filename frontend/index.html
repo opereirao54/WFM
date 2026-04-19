@@ -293,6 +293,72 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 /* Results */
 #results{display:none;flex-direction:column;gap:14px}
 
+/* ── Hero card (executive summary) ───────────────────────── */
+.hero{
+  background:linear-gradient(135deg,var(--surface) 0%,var(--accent-light) 100%);
+  border:1px solid var(--border);border-radius:var(--radius-xl);
+  padding:var(--space-6);box-shadow:var(--shadow-md);
+  display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:var(--space-6);align-items:center;
+  position:relative;overflow:hidden
+}
+.hero::before{
+  content:'';position:absolute;top:-40px;right:-40px;width:200px;height:200px;
+  background:radial-gradient(circle,var(--accent-light) 0%,transparent 70%);
+  opacity:.6;pointer-events:none
+}
+.hero-block{display:flex;flex-direction:column;gap:var(--space-2);position:relative;z-index:1}
+.hero-eyebrow{
+  font-size:var(--text-xs);font-weight:var(--weight-bold);color:var(--accent);
+  letter-spacing:.8px;text-transform:uppercase
+}
+.hero-metric{
+  font-family:var(--mono);font-size:var(--text-4xl);font-weight:var(--weight-bold);
+  color:var(--text);line-height:var(--leading-tight);letter-spacing:-1.2px
+}
+.hero-metric.ok{color:var(--green)}
+.hero-metric.warn{color:var(--amber)}
+.hero-metric.bad{color:var(--red)}
+.hero-delta{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:var(--text-sm);font-weight:var(--weight-semibold);
+  padding:3px 8px;border-radius:var(--radius-xs);width:fit-content
+}
+.hero-delta.up{background:var(--green-bg);color:var(--green)}
+.hero-delta.dn{background:var(--red-bg);color:var(--red)}
+.hero-delta.flat{background:var(--surface2);color:var(--muted)}
+.hero-sub{font-size:var(--text-sm);color:var(--muted)}
+.hero-spark{position:relative;z-index:1;display:flex;flex-direction:column;gap:var(--space-2)}
+.hero-spark-label{
+  font-size:var(--text-xs);font-weight:var(--weight-semibold);color:var(--muted);
+  letter-spacing:.5px;text-transform:uppercase
+}
+.hero-spark svg{width:100%;height:auto;display:block}
+.hero-spark-axis{
+  display:flex;justify-content:space-between;font-size:var(--text-2xs);
+  color:var(--dim);font-family:var(--mono);margin-top:var(--space-1)
+}
+.hero-insight{
+  position:relative;z-index:1;
+  background:var(--surface);border-radius:var(--radius-lg);
+  padding:var(--space-4);border:1px solid var(--border);
+  display:flex;flex-direction:column;gap:var(--space-2)
+}
+.hero-insight-head{
+  display:flex;align-items:center;gap:var(--space-2);
+  font-size:var(--text-xs);font-weight:var(--weight-bold);color:var(--cta);
+  letter-spacing:.5px;text-transform:uppercase
+}
+.hero-insight-head svg{width:14px;height:14px;stroke:var(--cta)}
+.hero-insight-text{
+  font-size:var(--text-base);color:var(--text);line-height:var(--leading-loose)
+}
+.hero-insight-text b{color:var(--accent);font-weight:var(--weight-bold)}
+
+@media (max-width:1100px){
+  .hero{grid-template-columns:1fr 1fr;}
+  .hero-insight{grid-column:1/-1}
+}
+
 /* Status bar */
 .sbar{
   padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);border-left:4px solid;
@@ -1252,6 +1318,138 @@ async function copiarResumo(){
 }
 const meses=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
+// ── Hero: sparkline SVG (SLA por dia) ─────────────────────────────────
+function renderSparkline(dias, target){
+  if(!dias || !dias.length) return '';
+  const W=320, H=70, P=4;
+  const pts = dias.map(x => Math.max(0, Math.min(1, x.sla_ponderado||0)));
+  const xs = pts.map((_,i) => P + i*(W-2*P)/Math.max(1,pts.length-1));
+  const ys = pts.map(v => H - P - v*(H-2*P));
+  const path = xs.map((x,i) => (i?'L':'M') + x.toFixed(1) + ' ' + ys[i].toFixed(1)).join(' ');
+  const area = path + ` L ${xs[xs.length-1].toFixed(1)} ${H} L ${P} ${H} Z`;
+  const tgtY = H - P - target*(H-2*P);
+  // tipo do dia → cor do ponto
+  const ptColor = (t) => t==='Sabado' ? 'var(--pool-bs)' :
+                          t==='Domingo' ? 'var(--pool-bd)' : 'var(--accent)';
+  const points = xs.map((x,i) => {
+    const v = pts[i], ok = v>=target-0.005;
+    const c = ok ? ptColor(dias[i].tipo) : 'var(--red)';
+    return `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="2.5" fill="${c}"/>`;
+  }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <defs>
+      <linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--accent)" stop-opacity=".25"/>
+        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <line x1="${P}" y1="${tgtY.toFixed(1)}" x2="${W-P}" y2="${tgtY.toFixed(1)}"
+          stroke="var(--cta)" stroke-width="1" stroke-dasharray="3 3" opacity=".7"/>
+    <path d="${area}" fill="url(#hg)"/>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points}
+  </svg>`;
+}
+
+// ── Hero: insight automático em linguagem natural ─────────────────────
+function renderInsight(d, agg, hcTotal, hcPico, taxaOcup){
+  const sla = agg.sla*100, target = (d.kpis.sla_target||0)*100;
+  const dias = d.dias || [];
+  const diasOk = dias.filter(x => x.sla_ponderado >= d.kpis.sla_target - 0.005).length;
+  const diasTot = dias.length;
+  const pctDiasOk = diasTot ? Math.round(diasOk/diasTot*100) : 0;
+
+  // Pico por intervalo (encontrar horário do pico médio)
+  let picoHora = '—', picoVol = 0;
+  if(dias.length){
+    const acc = {}; const cnt = {};
+    dias.forEach(d2 => (d2.intervalos||[]).forEach(i => {
+      acc[i.horario] = (acc[i.horario]||0) + (i.volume||0);
+      cnt[i.horario] = (cnt[i.horario]||0) + 1;
+    }));
+    let bestH='', bestV=-1;
+    Object.keys(acc).forEach(h => {
+      const m = acc[h]/Math.max(1,cnt[h]);
+      if(m > bestV){ bestV = m; bestH = h; }
+    });
+    picoHora = bestH || '—';
+    picoVol = bestV;
+  }
+
+  const overPct = (d.kpis.overstaffing||0)*100;
+  const status = d.status;
+
+  // Construir narrativa
+  let parts = [];
+  if(status==='optimal' && sla>=target){
+    parts.push(`Dimensionamento <b>atinge a meta</b> com SLA de <b>${sla.toFixed(1)}%</b> (alvo ${target.toFixed(0)}%) usando <b>${hcTotal} HC bruto</b>.`);
+  } else if(status==='constrained'){
+    parts.push(`Restrição ativa: SLA <b>${sla.toFixed(1)}%</b> abaixo do alvo (${target.toFixed(0)}%) — solver atingiu o limite de overstaffing ou janelas.`);
+  } else if(status==='infeasible'){
+    parts.push(`Cenário <b>inviável</b> com as restrições atuais. Considere relaxar overstaffing máximo ou aumentar máx. horários de entrada.`);
+  } else {
+    parts.push(`SLA mensal de <b>${sla.toFixed(1)}%</b> (alvo ${target.toFixed(0)}%) com <b>${hcTotal} HC bruto</b>.`);
+  }
+
+  if(diasTot){
+    parts.push(`<b>${diasOk}/${diasTot}</b> dias do mês (${pctDiasOk}%) atingem o SLA individualmente.`);
+  }
+
+  if(picoHora && picoHora!=='—'){
+    parts.push(`Pico de demanda às <b>${picoHora}</b> (~${Math.round(picoVol)} chamadas).`);
+  }
+
+  if(taxaOcup > 0){
+    parts.push(`Razão escala/pico: <b>${taxaOcup.toFixed(2)}×</b> — ${taxaOcup>2?'alta rotatividade':taxaOcup>1.4?'rotatividade moderada':'pico contínuo'}.`);
+  }
+
+  if(overPct > 5){
+    parts.push(`Overstaffing de <b>${overPct.toFixed(1)}%</b> indica folga capacidade vs demanda.`);
+  }
+
+  return parts.join(' ');
+}
+
+// ── Hero card renderer ────────────────────────────────────────────────
+function renderHero(d, agg, hcTotal, hcPico, taxaOcup){
+  const k = d.kpis;
+  const sla = agg.sla*100, target = (k.sla_target||0)*100;
+  const slaCls = sla>=target-0.5 ? 'ok' : sla>=target-3 ? 'warn' : 'bad';
+  const delta = sla - target;
+  const deltaCls = delta>=0.3 ? 'up' : delta<=-0.3 ? 'dn' : 'flat';
+  const deltaSym = delta>=0.3 ? '↑' : delta<=-0.3 ? '↓' : '→';
+  const deltaStr = `${deltaSym} ${delta>=0?'+':''}${delta.toFixed(1)}pp vs alvo`;
+
+  const sparkSvg = renderSparkline(d.dias||[], k.sla_target||0.8);
+  const insight = renderInsight(d, agg, hcTotal, hcPico, taxaOcup);
+
+  // Eixo: primeiro e último dia
+  const firstDay = d.dias?.[0]?.data || '';
+  const lastDay  = d.dias?.[d.dias.length-1]?.data || '';
+  const dayShort = (s) => s ? s.slice(8,10)+'/'+s.slice(5,7) : '—';
+
+  return `<div class="hero">
+    <div class="hero-block">
+      <div class="hero-eyebrow">SLA Ponderado · ${meses[d.mes]}/${d.ano}</div>
+      <div class="hero-metric ${slaCls}">${sla.toFixed(1)}%</div>
+      <div class="hero-delta ${deltaCls}">${deltaStr}</div>
+      <div class="hero-sub">Meta operacional: <b style="color:var(--text)">${target.toFixed(0)}%</b> em até ${k.tempo_target||20}s</div>
+    </div>
+    <div class="hero-spark">
+      <div class="hero-spark-label">SLA por dia · linha tracejada = alvo</div>
+      ${sparkSvg}
+      <div class="hero-spark-axis"><span>${dayShort(firstDay)}</span><span>${dayShort(lastDay)}</span></div>
+    </div>
+    <div class="hero-insight">
+      <div class="hero-insight-head">
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        Insight automático
+      </div>
+      <div class="hero-insight-text">${insight}</div>
+    </div>
+  </div>`;
+}
+
 function render(d){
   document.getElementById('view-wrap').style.display='flex';
   switchView('res');
@@ -1294,6 +1492,9 @@ function render(d){
   const hcPico  = agg.hcPico || 0;
   const taxaOcup = hcPico>0 ? (hcTotal/hcPico) : 0;
   const slaOkAgg = agg.sla >= k.sla_target - 0.005;
+
+  // ── Hero (executive summary) ────────────────────────────────────────
+  el.innerHTML += renderHero(d, agg, hcTotal, hcPico, taxaOcup);
 
   // KPIs
   const nsRate = agg.volume>0 ? Math.round(agg.ns/agg.volume*100) : 0;
