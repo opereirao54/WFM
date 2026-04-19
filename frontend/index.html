@@ -225,6 +225,12 @@ main::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 .kpi.bad  .kpi-val{color:var(--red)}
 .kpi.blue .kpi-val{color:var(--blue)}
 .kpi.ink  .kpi-val{color:var(--accent)}
+
+/* Resumo mensal (copy-paste para diretoria) */
+.resumo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.res-item{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px 12px}
+.res-lbl{font-size:10px;font-weight:500;color:var(--muted);letter-spacing:.3px;text-transform:uppercase;margin-bottom:4px}
+.res-val{font-size:20px;font-weight:700;color:var(--text);font-family:var(--mono);line-height:1.1}
 .kpi-trend{
   display:inline-flex;align-items:center;gap:3px;
   font-size:10px;font-weight:500;margin-top:4px;padding:1px 6px;
@@ -628,12 +634,12 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 <div class="tab-panel" id="panel-adv">
 
   <div class="sec-group">
-    <div class="sec-label">Shrinkage <span class="info-pill" id="shrink_total_lbl">6%</span></div>
-    <div class="slider-field"><div class="slider-header"><label>Absenteísmo</label><span class="slider-val" id="ab_lbl">5%</span></div><input type="range" id="absenteismo" min="0" max="25" value="5" oninput="sv('ab_lbl',this.value+'%');updateShrinkTotal()"></div>
+    <div class="sec-label">Shrinkage <span class="info-pill" id="shrink_total_lbl">11%</span></div>
+    <div class="slider-field"><div class="slider-header"><label>Absenteísmo</label><span class="slider-val" id="ab_lbl">0%</span></div><input type="range" id="absenteismo" min="0" max="25" value="0" oninput="sv('ab_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Férias</label><span class="slider-val" id="fv_lbl">0%</span></div><input type="range" id="ferias" min="0" max="20" value="0" oninput="sv('fv_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">3%</span></div><input type="range" id="treinamento" min="0" max="20" value="3" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
+    <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">0%</span></div><input type="range" id="treinamento" min="0" max="20" value="0" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Reuniões</label><span class="slider-val" id="re_lbl">0%</span></div><input type="range" id="reunioes" min="0" max="15" value="0" oninput="sv('re_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">3%</span></div><input type="range" id="aderencia" min="0" max="20" value="3" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
+    <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">0%</span></div><input type="range" id="aderencia" min="0" max="20" value="0" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">11%</span></div><input type="range" id="outras" min="0" max="20" value="11" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
   </div>
 
@@ -753,9 +759,11 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
     <div class="view-tabs">
       <button class="view-tab active" id="vtab-res" onclick="switchView('res')">📊 Resultados</button>
       <button class="view-tab" id="vtab-sim" onclick="switchView('sim')">🧪 Simulador</button>
+      <button class="view-tab" id="vtab-sav" onclick="switchView('sav')">💾 Salvos</button>
     </div>
     <div id="results"></div>
     <div id="simulator" style="display:none;padding:16px"></div>
+    <div id="savedview" style="display:none;padding:16px"></div>
   </div>
 </main>
 
@@ -950,6 +958,69 @@ window.addEventListener('DOMContentLoaded',()=>{
 
 function fmt(n,d=1){return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})}
 function fmtI(n){return Number(n).toLocaleString('pt-BR')}
+
+// Agregação a partir da tabela (fonte única de verdade)
+function aggregateFromDias(dias){
+  let vol=0, ns=0, tmoNum=0, tmeNum=0, ocupNum=0, filaNum=0, hcPico=0;
+  let ivOkNum=0, ivDen=0;
+  (dias||[]).forEach(d=>{
+    const v = Number(d.volume_total||0);
+    vol += v;
+    ns  += Number(d.ns_total||0);
+    tmoNum  += Number(d.tmo_medio||0) * v;
+    tmeNum  += Number(d.tme_medio||0) * v;
+    ocupNum += Number(d.ocupacao_media||0) * v;
+    filaNum += Number(d.fila_media||0) * v;
+    hcPico   = Math.max(hcPico, Number(d.hc_bruto_max||0));
+    ivOkNum += Number(d.intervalos_ok_pct||0) * v;
+    ivDen   += v;
+  });
+  return {
+    volume: vol,
+    ns: ns,
+    sla: vol>0 ? ns/vol : 0,
+    tmo: vol>0 ? tmoNum/vol : 0,
+    tme: vol>0 ? tmeNum/vol : 0,
+    ocupacao: vol>0 ? ocupNum/vol : 0,
+    fila: vol>0 ? filaNum/vol : 0,
+    hcPico,
+    ivOkPct: ivDen>0 ? ivOkNum/ivDen : 0,
+  };
+}
+
+function buildResumoText(d, agg, hcTotal, hcPico, taxaOcup){
+  const mes = String(d.mes).padStart(2,'0');
+  const ano = d.ano;
+  const lines = [
+    `RESUMO DO DIMENSIONAMENTO — ${mes}/${ano}`,
+    `Período: ${d.horario_abertura||'auto'}–${d.horario_fechamento||'auto'}  |  ${d.dias.length} dias`,
+    ``,
+    `Volume total:          ${fmtI(Math.round(agg.volume))} chamadas`,
+    `TMA médio (pond. vol): ${fmt(agg.tmo,0)} s`,
+    `NS (SLA ponderado):    ${fmt(agg.sla*100)} %`,
+    `TME médio (pond. vol): ${fmt(agg.tme,0)} s`,
+    `Ocupação média:        ${fmt(agg.ocupacao*100)} %`,
+    ``,
+    `HC TOTAL:              ${hcTotal} agentes`,
+    `HC PICO (dia):         ${hcPico} agentes`,
+    `Taxa de Ocupação HC:   ${fmt(taxaOcup*100)} %  (HC total ÷ HC pico)`,
+  ];
+  return lines.join('\n');
+}
+
+async function copiarResumo(){
+  const txt = document.getElementById('resumo-text').innerText;
+  try{
+    await navigator.clipboard.writeText(txt);
+    const btn = document.querySelector('#resumo-card .card-action');
+    if(btn){ const old=btn.innerHTML; btn.innerHTML='✓ Copiado'; setTimeout(()=>btn.innerHTML=old, 1800); }
+  }catch(e){
+    // fallback
+    const ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove();
+    alert('Resumo copiado para a área de transferência.');
+  }
+}
 const meses=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 
 function render(d){
@@ -986,22 +1057,31 @@ function render(d){
     </div>`;
   });
 
+  // ── Agregados derivados da tabela detalhada (fonte única de verdade) ─
+  // As cards usam esses valores para bater 1:1 com a tabela "Dimensionamento Dia a Dia"
+  const agg = aggregateFromDias(d.dias);
+  // Preserva alguns KPIs que só o backend conhece (overstaffing, target, etc.)
+  const hcTotal = d.hc_fisico.total || 0;
+  const hcPico  = agg.hcPico || 0;
+  const taxaOcup = hcPico>0 ? (hcTotal/hcPico) : 0;
+  const slaOkAgg = agg.sla >= k.sla_target - 0.005;
+
   // KPIs
-  const nsRate=k.volume_total_mes>0?Math.round(k.ns_total_mes/k.volume_total_mes*100):0;
+  const nsRate = agg.volume>0 ? Math.round(agg.ns/agg.volume*100) : 0;
   el.innerHTML+=`<div class="krow">
-    <div class="kpi ${slaOk?'ok':'bad'}">
+    <div class="kpi ${slaOkAgg?'ok':'bad'}">
       <div class="kpi-lbl">SLA Mensal</div>
-      <div class="kpi-val">${fmt(k.sla_ponderado_mes*100)}%</div>
+      <div class="kpi-val">${fmt(agg.sla*100)}%</div>
       <div class="kpi-sub">Target ${fmt(k.sla_target*100,0)}%</div>
     </div>
     <div class="kpi blue">
       <div class="kpi-lbl">Volume Total</div>
-      <div class="kpi-val">${fmtI(Math.round(k.volume_total_mes))}</div>
+      <div class="kpi-val">${fmtI(Math.round(agg.volume))}</div>
       <div class="kpi-sub">chamadas no mês</div>
     </div>
     <div class="kpi blue">
       <div class="kpi-lbl">NS Total</div>
-      <div class="kpi-val">${fmtI(Math.round(k.ns_total_mes))}</div>
+      <div class="kpi-val">${fmtI(Math.round(agg.ns))}</div>
       <div class="kpi-sub">${nsRate}% atendidas no prazo</div>
     </div>
     <div class="kpi ${ovOk?'ok':'warn'}">
@@ -1011,13 +1091,38 @@ function render(d){
     </div>
     <div class="kpi ink">
       <div class="kpi-lbl">HC Bruto Total</div>
-      <div class="kpi-val">${d.hc_fisico.total}</div>
+      <div class="kpi-val">${hcTotal}</div>
       <div class="kpi-sub">Líq. ref: ${d.hc_liquido_ref?.total||'—'}</div>
     </div>
     <div class="kpi blue">
       <div class="kpi-lbl">Pausa NR-17</div>
       <div class="kpi-val">${fmt((d.pausa_nr17_pct||0)*100)}%</div>
       <div class="kpi-sub">ponderada por HC · 6:20=10,5% · 8:12=16,3%</div>
+    </div>
+  </div>`;
+
+  // ── Resumo Mensal p/ Diretoria (copia-cola) ─────────────────────────
+  const resumoTxt = buildResumoText(d, agg, hcTotal, hcPico, taxaOcup);
+  el.innerHTML+=`<div class="card" id="resumo-card">
+    <div class="card-header">
+      <div class="card-title">Resumo Mensal — Diretoria</div>
+      <button class="card-action" onclick="copiarResumo()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Copiar
+      </button>
+    </div>
+    <div style="padding:12px 16px 16px">
+      <div class="resumo-grid">
+        <div class="res-item"><div class="res-lbl">Volume</div><div class="res-val">${fmtI(Math.round(agg.volume))}</div></div>
+        <div class="res-item"><div class="res-lbl">TMA médio</div><div class="res-val">${fmt(agg.tmo,0)}s</div></div>
+        <div class="res-item"><div class="res-lbl">NS (SLA)</div><div class="res-val">${fmt(agg.sla*100)}%</div></div>
+        <div class="res-item"><div class="res-lbl">TME médio</div><div class="res-val">${fmt(agg.tme,0)}s</div></div>
+        <div class="res-item"><div class="res-lbl">HC Total</div><div class="res-val">${hcTotal}</div></div>
+        <div class="res-item"><div class="res-lbl">HC Pico</div><div class="res-val">${hcPico}</div></div>
+        <div class="res-item"><div class="res-lbl">Taxa Ocupação</div><div class="res-val">${fmt(taxaOcup*100)}%</div></div>
+        <div class="res-item"><div class="res-lbl">Ocup. média ponderada</div><div class="res-val">${fmt(agg.ocupacao*100)}%</div></div>
+      </div>
+      <pre id="resumo-text" style="margin-top:12px;padding:10px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:11px;color:var(--text);white-space:pre-wrap;line-height:1.55">${resumoTxt}</pre>
     </div>
   </div>`;
 
@@ -1050,10 +1155,16 @@ function render(d){
   el.innerHTML+=`<div class="card">
     <div class="card-header">
       <div class="card-title">Dimensionamento Dia a Dia</div>
-      <button class="card-action" onclick="exportar()">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Exportar Excel
-      </button>
+      <div style="display:flex;gap:6px">
+        <button class="card-action" onclick="salvarDimensionamento()" title="Salvar este dimensionamento">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salvar
+        </button>
+        <button class="card-action" onclick="exportar()">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar Excel
+        </button>
+      </div>
     </div>
     <div class="tbl-wrap"><table class="mt" id="main-tbl">
       <thead><tr>
@@ -1192,48 +1303,92 @@ function renderEscala(el, d) {
   const hours=[];
   for(let h=Math.ceil(tMin/60)*60; h<tMax; h+=60) hours.push(h);
 
+  // ── Sugestão de pausas por tipo de escala (padrão WFM / NR-17) ─────
+  // Retorna array de {off, dur, kind} em minutos desde a entrada
+  function breaksFor(tipo){
+    if(tipo==='8:12') return [
+      {off:120, dur:15, kind:'pausa', label:'Pausa 1'},
+      {off:240, dur:60, kind:'refeicao', label:'Refeição'},
+      {off:375, dur:15, kind:'pausa', label:'Pausa 2'},
+    ];
+    // 6:20 → 2 pausas NR-17 de 10min
+    return [
+      {off:120, dur:10, kind:'pausa', label:'Pausa 1'},
+      {off:270, dur:10, kind:'pausa', label:'Pausa 2'},
+    ];
+  }
+
   // ── Gantt HTML ──────────────────────────────────────────────────────
   let gantt = `<div class="card" style="margin-top:0">
     <div class="card-header">
       <div class="card-title">Escala Dimensionada — Gantt</div>
+      <div style="font-size:11px;color:var(--muted);display:flex;gap:10px;align-items:center">
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#fbbf24"></span>Pausa</span>
+        <span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#ef4444"></span>Refeição</span>
+      </div>
     </div>
-    <div style="padding:0 16px 16px">`;
+    <div style="padding:4px 16px 16px">`;
 
   Object.entries(byPool).forEach(([pool, ts])=>{
     const c = poolColor[pool]||poolColor.pool_812;
     const lbl = poolLabel[pool]||pool;
     const n_total = ts.reduce((s,t)=>s+t.agentes_bruto,0);
-    gantt += `<div style="margin-bottom:6px">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:${c.bg};color:${c.text};border:1px solid ${c.border}">${lbl}</span>
-        <span style="font-size:11px;color:var(--muted)">${n_total} agentes</span>
-      </div>
-      <div style="position:relative;height:28px;background:var(--surface2);border-radius:4px;overflow:hidden">`;
-    // eixo de horas (fundo)
-    hours.forEach(hm=>{
-      const p = pct(hm);
-      gantt += `<div style="position:absolute;top:0;left:${p}%;height:100%;width:1px;background:var(--border);opacity:.4"></div>`;
-    });
-    // barras de turno
+    gantt += `<div style="margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:6px;background:${c.bg};color:${c.text};border:1px solid ${c.border}">${lbl}</span>
+        <span style="font-size:12px;color:var(--text);font-weight:600">${n_total} agentes</span>
+        <span style="font-size:11px;color:var(--dim)">· ${ts.length} turno(s)</span>
+      </div>`;
+
+    // linha por turno (mais legível que empilhado)
     ts.forEach(t=>{
-      const te = t2m(t.entrada); const ts2 = t2m(t.saida);
-      const left = pct(te); const right = pct(ts2);
+      const te = t2m(t.entrada); const tf = t2m(t.saida);
+      const left = pct(te); const right = pct(tf);
       const width = Math.max(right-left, 0.5);
-      gantt += `<div title="${t.entrada}–${t.saida}: ${t.agentes_bruto}ag" style="position:absolute;top:3px;left:${left}%;width:${width}%;height:22px;background:${c.bg};border:1px solid ${c.border};border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden">
-        <span style="font-size:10px;color:${c.text};font-weight:600;white-space:nowrap;padding:0 4px">${t.agentes_bruto}</span>
+      const brks = breaksFor(t.tipo);
+
+      gantt += `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <div style="min-width:62px;font-size:11px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums">${t.entrada}–${t.saida}</div>
+        <div style="flex:1;position:relative;height:26px;background:var(--surface2);border-radius:4px;overflow:hidden;border:1px solid var(--border)">`;
+      // grid de horas
+      hours.forEach(hm=>{
+        const p = pct(hm);
+        gantt += `<div style="position:absolute;top:0;left:${p}%;height:100%;width:1px;background:var(--border);opacity:.4"></div>`;
+      });
+      // barra principal do turno
+      gantt += `<div title="${t.entrada}–${t.saida} · ${t.agentes_bruto} ag · ${t.tipo}" style="position:absolute;top:3px;left:${left}%;width:${width}%;height:20px;background:${c.bg};border:1px solid ${c.border};border-radius:3px;display:flex;align-items:center;justify-content:center;overflow:hidden">
+        <span style="font-size:11px;color:${c.text};font-weight:700;white-space:nowrap;padding:0 6px">${t.agentes_bruto} ag</span>
+      </div>`;
+      // sobreposição: pausas/refeição dentro do turno
+      brks.forEach(b=>{
+        const b0 = te + b.off; const b1 = b0 + b.dur;
+        if (b1 > tf) return;
+        const bl = pct(b0); const br = pct(b1);
+        const bw = Math.max(br-bl, 0.3);
+        const bcolor = b.kind==='refeicao' ? '#ef4444' : '#fbbf24';
+        gantt += `<div title="${b.label} · ${b.dur}min (a partir de ${Math.floor(b0/60).toString().padStart(2,'0')}:${(b0%60).toString().padStart(2,'0')})" style="position:absolute;top:3px;left:${bl}%;width:${bw}%;height:20px;background:${bcolor};opacity:.85;border-radius:2px"></div>`;
+      });
+      gantt += `</div>
+        <div style="min-width:48px;font-size:11px;color:var(--dim);text-align:left">${t.tipo}</div>
       </div>`;
     });
-    gantt += `</div></div>`;
+    gantt += `</div>`;
   });
 
   // eixo de horas legenda
-  gantt += `<div style="position:relative;height:18px;margin-top:4px">`;
+  gantt += `<div style="position:relative;height:18px;margin-top:4px;margin-left:70px;margin-right:56px">`;
   hours.forEach(hm=>{
     const p = pct(hm);
     const hh = String(Math.floor(hm/60)).padStart(2,'0');
-    gantt += `<span style="position:absolute;left:${p}%;transform:translateX(-50%);font-size:10px;color:var(--dim)">${hh}h</span>`;
+    gantt += `<span style="position:absolute;left:${p}%;transform:translateX(-50%);font-size:11px;color:var(--muted);font-weight:600">${hh}h</span>`;
   });
-  gantt += `</div></div></div>`;
+  gantt += `</div>
+    <div style="font-size:10px;color:var(--dim);margin-top:8px;line-height:1.5;padding-top:8px;border-top:1px dashed var(--border)">
+      Pausas sugeridas conforme WFM/NR-17:
+      <b>6:20</b> → 2 pausas de 10min (+2h e +4h30);
+      <b>8:12</b> → pausa 15min (+2h), refeição 60min (+4h), pausa 15min (+6h15).
+    </div>
+  </div></div>`;
 
   // ── Cobertura HC ────────────────────────────────────────────────────
   // calcula cobertura por slot de 30min a partir dos turnos
@@ -1464,17 +1619,164 @@ function renderCalendar(d) {
   return html;
 }
 
-// ── View switcher (Resultados ↔ Simulador) ───────────────────────────
+// ── View switcher (Resultados ↔ Simulador ↔ Salvos) ───────────────────
 window.switchView = function(which){
   document.getElementById('vtab-res').classList.toggle('active', which==='res');
   document.getElementById('vtab-sim').classList.toggle('active', which==='sim');
+  document.getElementById('vtab-sav').classList.toggle('active', which==='sav');
   document.getElementById('results').style.display   = which==='res' ? 'flex' : 'none';
   document.getElementById('simulator').style.display = which==='sim' ? 'block' : 'none';
+  document.getElementById('savedview').style.display = which==='sav' ? 'block' : 'none';
   if(which==='sim'){
     const box = document.getElementById('simulator');
     if(!box.dataset.loaded){ renderSimulador(box); box.dataset.loaded='1'; }
   }
+  if(which==='sav'){
+    renderSalvos();
+  }
 };
+
+// ── Guia "Salvos": salvar, listar, carregar, replicar ────────────────
+let _lastFormSnapshot = {};
+function _captureFormSnapshot(){
+  const ids = ['volume_mes','tmo_base','sla_target','tempo_target','mes','ano',
+    'interval_floor_pct','max_overstaffing','max_horarios_entrada','patience_time',
+    'absenteismo','ferias','treinamento','reunioes','aderencia','outras',
+    'vol_sabado_pct','vol_domingo_pct','horario_abertura','horario_fechamento',
+    'min_agentes'];
+  const snap = {};
+  ids.forEach(id=>{ const el=document.getElementById(id); if(el) snap[id]=el.value; });
+  snap.sla_mode = slaMode;
+  snap.solver_mode = solverMode;
+  snap.erlang_mode = erlangMode;
+  snap.shift_mode = shiftMode;
+  snap.janelas_bloqueadas = getJanelasBloqueadas();
+  snap.dias_funcionamento = (typeof activeDays!=='undefined' && activeDays) ? activeDays.slice() : [];
+  return snap;
+}
+function _applyFormSnapshot(snap){
+  if(!snap) return;
+  Object.entries(snap).forEach(([id,val])=>{
+    const el = document.getElementById(id);
+    if(el && 'value' in el){
+      el.value = val;
+      if(el.type === 'range') el.dispatchEvent(new Event('input'));
+    }
+  });
+  if(snap.sla_mode && typeof setSlaMode==='function') setSlaMode(snap.sla_mode);
+  if(snap.solver_mode && typeof setSolver==='function') setSolver(snap.solver_mode);
+  if(snap.erlang_mode && typeof setErlang==='function') setErlang(snap.erlang_mode);
+  if(snap.shift_mode && typeof setShiftMode==='function') setShiftMode(snap.shift_mode);
+  // janelas bloqueadas
+  const list = document.getElementById('janelas-bloqueadas-list');
+  if(list){
+    list.innerHTML='';
+    (snap.janelas_bloqueadas||[]).forEach(s=>{
+      const [a,b]=String(s).split('-'); if(a&&b) addJanelaBloqueada(a,b);
+    });
+  }
+  // dias funcionamento: best effort
+  if(Array.isArray(snap.dias_funcionamento) && typeof activeDays!=='undefined'){
+    window.activeDays = snap.dias_funcionamento.slice();
+    if(typeof updateFdsVisibility==='function') updateFdsVisibility();
+  }
+  updateShrinkTotal();
+}
+
+async function salvarDimensionamento(){
+  if(!lastResult){ alert('Calcule um dimensionamento primeiro.'); return; }
+  const operacao = prompt('Nome da operação (ex.: comgas, sulgas, necta):');
+  if(!operacao) return;
+  const mesStr = String(lastResult.mes).padStart(2,'0');
+  const anoMesDefault = `${lastResult.ano}${mesStr}`;
+  const anoMes = prompt('Ano/Mês (AAAAMM):', anoMesDefault);
+  if(!anoMes || !/^\d{6}$/.test(anoMes)){ alert('Formato inválido. Use AAAAMM, ex.: 202608'); return; }
+  const nomeDefault = `dim_${new Date().toISOString().slice(0,10)}`;
+  const nome = prompt('Nome do cenário:', nomeDefault) || nomeDefault;
+  const payload = {
+    fields: _captureFormSnapshot(),
+    result: lastResult,
+  };
+  try{
+    const r = await fetch('/saved', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({operacao, ano_mes: anoMes, nome, payload})});
+    const j = await r.json();
+    if(j.erro){ alert('Erro: '+j.erro); return; }
+    alert('Salvo em '+j.rel_path);
+  }catch(e){ alert('Erro: '+e.message); }
+}
+
+async function renderSalvos(){
+  const box = document.getElementById('savedview');
+  box.innerHTML = `<div class="card"><div style="padding:18px;color:var(--dim)">Carregando…</div></div>`;
+  try{
+    const r = await fetch('/saved');
+    const j = await r.json();
+    const tree = j.tree || {};
+    const ops = Object.keys(tree).sort();
+    if(!ops.length){
+      box.innerHTML = `<div class="card"><div style="padding:24px;text-align:center;color:var(--dim)">
+        Nenhum dimensionamento salvo ainda. Após calcular, clique em <b>💾 Salvar</b> na aba Resultados.</div></div>`;
+      return;
+    }
+    let html = '';
+    ops.forEach(op=>{
+      html += `<div class="card" style="margin-bottom:12px">
+        <div class="card-header"><div class="card-title">📁 ${op}</div></div>
+        <div style="padding:0 16px 14px">`;
+      const yms = Object.keys(tree[op]).sort().reverse();
+      yms.forEach(ym=>{
+        const ymLbl = ym.length===6 ? `${ym.slice(0,4)}/${ym.slice(4,6)}` : ym;
+        html += `<div style="margin-top:10px">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">📅 ${ymLbl}</div>`;
+        (tree[op][ym]||[]).forEach(reg=>{
+          const dt = new Date((reg.modified_at||0)*1000).toLocaleString('pt-BR');
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;margin-bottom:4px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis">${reg.nome}</div>
+              <div style="font-size:10px;color:var(--dim)">${dt}</div>
+            </div>
+            <button class="tb" onclick="carregarSalvo('${reg.rel_path}', false)" title="Carregar resultados">Abrir</button>
+            <button class="tb" onclick="carregarSalvo('${reg.rel_path}', true)" title="Carregar formulário para replicar com nova escala">Replicar</button>
+            <button class="tb" style="color:var(--red)" onclick="excluirSalvo('${reg.rel_path}')" title="Excluir">✕</button>
+          </div>`;
+        });
+        html += `</div>`;
+      });
+      html += `</div></div>`;
+    });
+    box.innerHTML = html;
+  }catch(e){
+    box.innerHTML = `<div class="card"><div style="padding:18px;color:var(--red)">Erro: ${e.message}</div></div>`;
+  }
+}
+
+async function carregarSalvo(relPath, onlyFields){
+  try{
+    const r = await fetch('/saved/load?path='+encodeURIComponent(relPath));
+    const j = await r.json();
+    if(j.erro){ alert('Erro: '+j.erro); return; }
+    _applyFormSnapshot(j.fields||{});
+    if(!onlyFields && j.result){
+      lastResult = j.result;
+      render(j.result);
+      switchView('res');
+    }else{
+      alert('Formulário carregado. Ajuste mês/ano/cenário e clique em Calcular para replicar.');
+      switchView('res');
+    }
+  }catch(e){ alert('Erro: '+e.message); }
+}
+
+async function excluirSalvo(relPath){
+  if(!confirm('Excluir "'+relPath+'"?')) return;
+  try{
+    const r = await fetch('/saved?path='+encodeURIComponent(relPath), {method:'DELETE'});
+    const j = await r.json();
+    if(j.erro){ alert('Erro: '+j.erro); return; }
+    renderSalvos();
+  }catch(e){ alert('Erro: '+e.message); }
+}
 
 // ── Simulador multi-cenário ──────────────────────────────────────────
 window.simScenarios = window.simScenarios || [];
