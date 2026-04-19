@@ -175,6 +175,7 @@ def calcular():
             solver_mode          = fv("solver_mode", "heuristic"),
             erlang_mode          = fv("erlang_mode", "erlang_c"),
             patience_time        = float(fv("patience_time", 300)),
+            retry_rate           = float(fv("retry_rate", 0.30)),
             horario_abertura     = fv("horario_abertura", "").strip(),
             horario_fechamento   = fv("horario_fechamento", "").strip(),
             janela_entrada_inicio = fv("janela_entrada_inicio", "").strip(),

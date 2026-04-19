@@ -57,9 +57,10 @@ class WFMInput:
     max_overstaffing:     float = 0.20
     max_horarios_entrada: int   = 6
     solver_mode:          str   = "heuristic"
-    # ── Erlang A ──────────────────────────────────────────────────────
-    erlang_mode:          str   = "erlang_c"   # "erlang_c" | "erlang_a"
-    patience_time:        float = 300.0        # segundos — relevante só p/ Erlang A
+    # ── Erlang A / X ──────────────────────────────────────────────────
+    erlang_mode:          str   = "erlang_c"   # "erlang_c" | "erlang_a" | "erlang_x"
+    patience_time:        float = 300.0        # segundos — relevante p/ Erlang A e X
+    retry_rate:           float = 0.30         # fração de abandonos que rechamam — só Erlang X
     # ── Horários ──────────────────────────────────────────────────────
     pausas: PausasAdicionais    = field(default_factory=PausasAdicionais)
     horario_abertura:     str   = ""
