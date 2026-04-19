@@ -86,6 +86,10 @@ class WFMInput:
     # Dias ausentes desta lista recebem volume zero e não entram na escala.
     dias_funcionamento: List[str] = field(default_factory=lambda:
         ["seg","ter","qua","qui","sex","sab","dom"])
+    # ── Tipos de turno permitidos ─────────────────────────────────────
+    # Padrão: ambos. Quando False, o solver não usa aquele turno.
+    allow_shift_620: bool = True
+    allow_shift_812: bool = True
 
 @dataclass
 class IntervaloOut:

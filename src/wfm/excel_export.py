@@ -145,11 +145,10 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
     for col in "ABCDEF":
         hdr(ws1[f'{col}4'], ws1[f'{col}4'].value)
     rows_pool = [
-        ("Pool A","8:12",out.hc_fisico["pool_a"],out.hc_liquido_ref["pool_a"],out.pl_efetivo["8:12_base"],out.pl_efetivo["8:12"]),
-        ("Pool B-Sáb","6:20",out.hc_fisico["pool_b_sab"],out.hc_liquido_ref["pool_b_sab"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("Pool B-Dom","6:20",out.hc_fisico["pool_b_dom"],out.hc_liquido_ref["pool_b_dom"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("Pool B-Extra","6:20",out.hc_fisico["pool_b_extra"],out.hc_liquido_ref["pool_b_extra"],out.pl_efetivo["6:20_base"],out.pl_efetivo["6:20"]),
-        ("TOTAL","—",out.hc_fisico["total"],out.hc_liquido_ref["total"],"—","—"),
+        ("Pool 8:12","8:12",out.hc_fisico.get("pool_812",0),out.hc_liquido_ref.get("pool_812",0),out.pl_efetivo.get("8:12_base","—"),out.pl_efetivo.get("8:12","—")),
+        ("Pool B-Sáb","6:20",out.hc_fisico.get("pool_b_sab",0),out.hc_liquido_ref.get("pool_b_sab",0),out.pl_efetivo.get("6:20_base","—"),out.pl_efetivo.get("6:20","—")),
+        ("Pool B-Dom","6:20",out.hc_fisico.get("pool_b_dom",0),out.hc_liquido_ref.get("pool_b_dom",0),out.pl_efetivo.get("6:20_base","—"),out.pl_efetivo.get("6:20","—")),
+        ("TOTAL","—",out.hc_fisico.get("total",0),out.hc_liquido_ref.get("total",0),"—","—"),
     ]
     for i, r in enumerate(rows_pool, 5):
         for j, v in enumerate(r, 1):

@@ -593,6 +593,9 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
       <div class="slider-header"><label>Volume Domingo (% dia útil)</label><span class="slider-val" id="dom_lbl">15%</span></div>
       <input type="range" id="vol_domingo_pct" min="5" max="100" value="15" oninput="sv('dom_lbl',this.value+'%')">
     </div>
+    <div style="font-size:10px;color:var(--dim);line-height:1.5;margin-top:4px">
+      Aplicado apenas quando <b>não há upload de Excel</b>. Com Excel, dias e pesos vêm do arquivo.
+    </div>
   </div>
 
   <div class="sec-group">
@@ -631,14 +634,28 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
     <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">3%</span></div><input type="range" id="treinamento" min="0" max="20" value="3" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Reuniões</label><span class="slider-val" id="re_lbl">0%</span></div><input type="range" id="reunioes" min="0" max="15" value="0" oninput="sv('re_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">3%</span></div><input type="range" id="aderencia" min="0" max="20" value="3" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">0%</span></div><input type="range" id="outras" min="0" max="20" value="0" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
+    <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">11%</span></div><input type="range" id="outras" min="0" max="20" value="11" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
+  </div>
+
+  <div class="sec-group">
+    <div class="sec-label">Escalas Permitidas</div>
+    <div class="toggle-row">
+      <button type="button" class="tb on" id="btn-shift-both" onclick="setShiftMode('both')">Ambas</button>
+      <button type="button" class="tb" id="btn-shift-620" onclick="setShiftMode('only_620')">Somente 6:20</button>
+      <button type="button" class="tb" id="btn-shift-812" onclick="setShiftMode('only_812')">Somente 8:12</button>
+    </div>
+    <div style="font-size:10px;color:var(--dim);line-height:1.5;margin-top:4px">
+      <b>Ambas:</b> solver escolhe o melhor mix entre 6:20 e 8:12 (CLT).<br>
+      <b>Somente 6:20:</b> usa apenas turnos 6:20 (sem CLT).<br>
+      <b>Somente 8:12:</b> usa apenas turnos 8:12 CLT (dias úteis).
+    </div>
   </div>
 
   <div class="sec-group">
     <div class="sec-label">Restrições de Dimensionamento</div>
     <div class="slider-field">
-      <div class="slider-header"><label>Overstaffing máximo</label><span class="slider-val" id="ov_lbl">20%</span></div>
-      <input type="range" id="max_overstaffing" min="1" max="40" value="20" oninput="sv('ov_lbl',this.value+'%')">
+      <div class="slider-header"><label>Overstaffing máximo</label><span class="slider-val" id="ov_lbl">1%</span></div>
+      <input type="range" id="max_overstaffing" min="1" max="40" value="1" oninput="sv('ov_lbl',this.value+'%')">
     </div>
     <div class="fld">
       <label>Máx. horários de entrada por pool</label>
@@ -646,7 +663,7 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
     </div>
     <div class="fld">
       <label>Mínimo de agentes por intervalo</label>
-      <input type="number" id="min_agentes" value="0" min="0" max="20">
+      <input type="number" id="min_agentes" value="2" min="0" max="20">
     </div>
   </div>
 
@@ -743,7 +760,7 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 </main>
 
 <script>
-let slaMode='weighted',solverMode='heuristic',erlangMode='erlang_c',uploadedFile=null,validationOk=true,lastResult=null;
+let slaMode='weighted',solverMode='heuristic',erlangMode='erlang_c',shiftMode='both',uploadedFile=null,validationOk=true,lastResult=null;
 
 function sv(id,val){document.getElementById(id).textContent=val}
 function updateShrinkTotal(){const total=parseInt(v('absenteismo')||0)+parseInt(v('ferias')||0)+parseInt(v('treinamento')||0)+parseInt(v('reunioes')||0)+parseInt(v('aderencia')||0)+parseInt(v('outras')||0);const el=document.getElementById('shrink_total_lbl');if(el){el.textContent=total+'%';el.style.color=total>40?'var(--red)':total>25?'var(--amber)':'var(--accent)';}}
@@ -751,6 +768,7 @@ function v(id){return document.getElementById(id).value}
 function setSlaMode(m){slaMode=m;document.getElementById('btn-w').classList.toggle('on',m==='weighted');document.getElementById('btn-f').classList.toggle('on',m==='interval_floor');document.getElementById('floor-wrap').style.display=m==='interval_floor'?'block':'none'}
 function setSolver(m){solverMode=m;document.getElementById('btn-h').classList.toggle('on',m==='heuristic');document.getElementById('btn-e').classList.toggle('on',m==='exact')}
 function setErlang(m){erlangMode=m;document.getElementById('btn-ec').classList.toggle('on',m==='erlang_c');document.getElementById('btn-ea').classList.toggle('on',m==='erlang_a');document.getElementById('patience-wrap').style.display=m==='erlang_a'?'block':'none'}
+function setShiftMode(m){shiftMode=m;document.getElementById('btn-shift-both').classList.toggle('on',m==='both');document.getElementById('btn-shift-620').classList.toggle('on',m==='only_620');document.getElementById('btn-shift-812').classList.toggle('on',m==='only_812')}
 
 // ── V5: abas Essencial / Avançado ─────────────────────────────
 function switchTab(which){
@@ -902,6 +920,8 @@ async function calcular(){
       horario_fechamento:v('horario_fechamento').trim(),
       janelas_bloqueadas:getJanelasBloqueadas().join(';'),
       min_agentes:parseInt(v('min_agentes'))||0,
+      allow_shift_620: (shiftMode==='both'||shiftMode==='only_620'),
+      allow_shift_812: (shiftMode==='both'||shiftMode==='only_812'),
       // ── V5: dias de funcionamento ──
       dias_funcionamento: activeDays.join(','),
     };
@@ -923,6 +943,9 @@ async function calcular(){
 window.addEventListener('DOMContentLoaded',()=>{
   updateFdsVisibility();
   checkIs24h();
+  // Janelas bloqueadas padrão (operação 24h típica)
+  addJanelaBloqueada('00:01','05:59');
+  addJanelaBloqueada('17:41','23:59');
 });
 
 function fmt(n,d=1){return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})}
@@ -1611,6 +1634,8 @@ window.runSimDelta = async function(volDelta, tmoDelta){
       horario_fechamento:v('horario_fechamento').trim(),
       janelas_bloqueadas:getJanelasBloqueadas().join(';'),
       min_agentes:parseInt(v('min_agentes'))||0,
+      allow_shift_620: (shiftMode==='both'||shiftMode==='only_620'),
+      allow_shift_812: (shiftMode==='both'||shiftMode==='only_812'),
       dias_funcionamento:getActiveDays().join(','),
     };
     Object.entries(fields).forEach(([k,val])=>fd.append(k,val));

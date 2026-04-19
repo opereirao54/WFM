@@ -183,6 +183,8 @@ def calcular():
             dias_funcionamento = [s.strip().lower() for s in
                 fv("dias_funcionamento", "seg,ter,qua,qui,sex,sab,dom").split(",")
                 if s.strip()],
+            allow_shift_620 = str(fv("allow_shift_620","true")).lower() in ("1","true","on","yes"),
+            allow_shift_812 = str(fv("allow_shift_812","true")).lower() in ("1","true","on","yes"),
         )
 
         out = run_engine(inp)

@@ -661,6 +661,8 @@ def unified_pool_solve(
     min_physical: int = 0,
     wrap: bool = False,
     entry_allowed_mask: Optional[np.ndarray] = None,
+    allow_shift_620: bool = True,
+    allow_shift_812: bool = True,
 ) -> Dict[str, List[Tuple[int, int]]]:
     """
     Resolve os 3 pools simultaneamente num único MILP respeitando as
@@ -682,8 +684,8 @@ def unified_pool_solve(
     Com wrap=True (operação 24h), turnos podem atravessar meia-noite e
     qualquer slot de entrada é válido.
     """
-    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap, entry_allowed_mask)
-    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap, entry_allowed_mask)
+    slots_620 = valid_slots("6:20", first_slot, last_slot, wrap, entry_allowed_mask) if allow_shift_620 else []
+    slots_812 = valid_slots("8:12", first_slot, last_slot, wrap, entry_allowed_mask) if allow_shift_812 else []
 
     empty = {"sab": [], "dom": [], "812": []}
     if not slots_620 and not slots_812:

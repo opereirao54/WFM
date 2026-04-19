@@ -266,6 +266,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         min_physical     = _min_hc,
         wrap             = is_24h,
         entry_allowed_mask = entry_allowed_mask,
+        allow_shift_620    = inp.allow_shift_620,
+        allow_shift_812    = inp.allow_shift_812,
     )
 
     sched_b_sab = pools["sab"]
