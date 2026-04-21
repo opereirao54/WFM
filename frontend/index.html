@@ -2256,10 +2256,40 @@ async function renderSalvos(){
           <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:6px">📅 ${ymLbl}</div>`;
         (tree[op][ym]||[]).forEach(reg=>{
           const dt = new Date((reg.modified_at||0)*1000).toLocaleString('pt-BR');
+          // Calcular resumo das premissas se houver payload
+          let resumoHtml = '';
+          if(reg.payload && reg.payload.result){
+            const d = reg.payload.result;
+            const agg = { volume:0, tmo:0, sla:0 };
+            let volSum=0;
+            (d.dias||[]).forEach(dia=>{
+              const volDia = dia.volume_total||0;
+              volSum += volDia;
+              agg.volume += volDia;
+              agg.tmo += (dia.tmo_medio||0) * volDia;
+              agg.sla += (dia.sla_ponderado||0) * volDia;
+            });
+            if(agg.volume>0){ agg.tmo /= agg.volume; agg.sla /= agg.volume; }
+            const hcTotal = (d.hc_fisico?.total || 0);
+            const hcPico = Math.max(...(d.dias||[]).map(x=>x.hc_bruto_max||0), 1);
+            const taxaOcup = hcPico>0 ? hcTotal/hcPico : 0;
+            const nsTotal = d.kpis?.ns_total_mes || 0;
+            const paTotal = ((d.pausas?.absenteismo||0)+(d.pausas?.ferias||0)+(d.pausas?.treinamento||0)+
+                            (d.pausas?.reunioes||0)+(d.pausas?.aderencia||0)+(d.pausas?.outras||0))*100;
+            resumoHtml = `
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                <div style="font-size:10px;color:var(--dim)">Volume: <b style="color:var(--text)">${Math.round(agg.volume).toLocaleString('pt-BR')}</b></div>
+                <div style="font-size:10px;color:var(--dim)">TMA: <b style="color:var(--text)">${agg.tmo.toFixed(0)}s</b></div>
+                <div style="font-size:10px;color:var(--dim)">NS: <b style="color:var(--text)">${(agg.sla*100).toFixed(1)}%</b></div>
+                <div style="font-size:10px;color:var(--dim)">PA: <b style="color:var(--text)">${paTotal.toFixed(1)}%</b></div>
+                <div style="font-size:10px;color:var(--dim)">HC: <b style="color:var(--text)">${hcTotal}</b></div>
+                <div style="font-size:10px;color:var(--dim)">Ocup: <b style="color:var(--text)">${taxaOcup.toFixed(2)}×</b></div>
+              </div>`;
+          }
           html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;margin-bottom:4px">
             <div style="flex:1;min-width:0">
               <div style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis">${reg.nome}</div>
-              <div style="font-size:10px;color:var(--dim)">${dt}</div>
+              <div style="font-size:10px;color:var(--dim)">${dt}${resumoHtml}</div>
             </div>
             <button class="tb" onclick="carregarSalvo('${reg.rel_path}', false)" title="Carregar resultados">Abrir</button>
             <button class="tb" onclick="carregarSalvo('${reg.rel_path}', true)" title="Carregar formulário para replicar com nova escala">Replicar</button>
