@@ -2156,7 +2156,47 @@ function _applyFormSnapshot(snap){
 
 async function salvarDimensionamento(){
   if(!lastResult){ alert('Calcule um dimensionamento primeiro.'); return; }
-  const operacao = prompt('Nome da operação (ex.: comgas, sulgas, necta):');
+  
+  // Calcular premissas do dimensionamento atual
+  const d = lastResult;
+  const agg = { volume:0, tmo:0, sla:0, tme:0, ocupacao:0 };
+  let volSum=0;
+  (d.dias||[]).forEach(dia=>{
+    const volDia = dia.volume_total||0;
+    volSum += volDia;
+    agg.volume += volDia;
+    agg.tmo += (dia.tmo_medio||0) * volDia;
+    agg.sla += (dia.sla_ponderado||0) * volDia;
+    agg.tme += (dia.tme_medio||0) * volDia;
+    agg.ocupacao += (dia.ocupacao_media||0) * volDia;
+  });
+  if(agg.volume>0){
+    agg.tmo /= agg.volume; agg.sla /= agg.volume;
+    agg.tme /= agg.volume; agg.ocupacao /= agg.volume;
+  }
+  const hcTotal = (d.hc_fisico?.total || 0);
+  const hcPico = Math.max(...(d.dias||[]).map(x=>x.hc_bruto_max||0), 1);
+  const taxaOcup = hcPico>0 ? hcTotal/hcPico : 0;
+  const nsTotal = d.kpis?.ns_total_mes || 0;
+  const paTotal = (d.pausas?.absenteismo||0)+(d.pausas?.ferias||0)+(d.pausas?.treinamento||0)+
+                  (d.pausas?.reunioes||0)+(d.pausas?.aderencia||0)+(d.pausas?.outras||0);
+  
+  // Mostrar resumo antes de salvar
+  const resumoHtml = `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;text-transform:uppercase;letter-spacing:.5px">Resumo das Premissas</div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <tr><td style="padding:6px 0;color:var(--muted)">Volume Total:</td><td style="padding:6px 8px;text-align:right;font-weight:600">${Math.round(agg.volume).toLocaleString('pt-BR')}</td></tr>
+        <tr><td style="padding:6px 0;color:var(--muted)">TMA Médio:</td><td style="padding:6px 8px;text-align:right;font-weight:600">${agg.tmo.toFixed(0)} s</td></tr>
+        <tr><td style="padding:6px 0;color:var(--muted)">NS (SLA Ponderado):</td><td style="padding:6px 8px;text-align:right;font-weight:600">${(agg.sla*100).toFixed(2)} %</td></tr>
+        <tr><td style="padding:6px 0;color:var(--muted)">PA (Pausas Totais):</td><td style="padding:6px 8px;text-align:right;font-weight:600">${(paTotal*100).toFixed(1)} %</td></tr>
+        <tr><td style="padding:6px 0;color:var(--muted)">HC Total:</td><td style="padding:6px 8px;text-align:right;font-weight:600">${hcTotal}</td></tr>
+        <tr><td style="padding:6px 0;color:var(--muted)">Taxa de Ocupação:</td><td style="padding:6px 8px;text-align:right;font-weight:600">${taxaOcup.toFixed(2)}×</td></tr>
+      </table>
+    </div>
+  `;
+  
+  const operacao = prompt('Nome da operação (ex.: comgas, sulgas, necta):' + resumoHtml);
   if(!operacao) return;
   const mesStr = String(lastResult.mes).padStart(2,'0');
   const anoMesDefault = `${lastResult.ano}${mesStr}`;
@@ -2241,6 +2281,36 @@ async function carregarSalvo(relPath, onlyFields){
     const r = await fetch('/saved/load?path='+encodeURIComponent(relPath));
     const j = await r.json();
     if(j.erro){ alert('Erro: '+j.erro); return; }
+    
+    // Se for replicar, perguntar se quer usar a mesma escala
+    if(onlyFields && j.fields){
+      const temEscala = j.fields && (j.fields.shift_mode || j.fields.solver_mode);
+      if(temEscala){
+        const usarMesmaEscala = confirm('Deseja utilizar a mesma escala do dimensionamento salvo?\\n\\nClique em OK para usar a mesma escala, ou Cancelar para ajustar manualmente.');
+        if(usarMesmaEscala){
+          _applyFormSnapshot(j.fields||{});
+          alert('Formulário carregado com a mesma escala. Ajuste mês/ano/cenário e clique em Calcular para replicar.');
+          switchView('res');
+          return;
+        } else {
+          // Carrega apenas os campos básicos, não a escala
+          const basicSnap = {};
+          const basicIds = ['volume_mes','tmo_base','sla_target','tempo_target','mes','ano',
+            'interval_floor_pct','max_overstaffing','max_horarios_entrada','patience_time',
+            'absenteismo','ferias','treinamento','reunioes','aderencia','outras',
+            'vol_sabado_pct','vol_domingo_pct','horario_abertura','horario_fechamento',
+            'min_agentes'];
+          basicIds.forEach(id=>{ if(j.fields[id]!==undefined) basicSnap[id]=j.fields[id]; });
+          basicSnap.janelas_bloqueadas = j.fields.janelas_bloqueadas;
+          basicSnap.dias_funcionamento = j.fields.dias_funcionamento;
+          _applyFormSnapshot(basicSnap);
+          alert('Formulário carregado. Ajuste a escala manualmente e clique em Calcular para replicar.');
+          switchView('res');
+          return;
+        }
+      }
+    }
+    
     _applyFormSnapshot(j.fields||{});
     if(!onlyFields && j.result){
       lastResult = j.result;
