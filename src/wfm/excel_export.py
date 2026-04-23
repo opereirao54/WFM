@@ -161,15 +161,19 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
 
     # Day summary table
     row_start = 11
-    cols_day = ["DATA","DIA","TIPO","VOLUME","TMO(s)","HC LÍQ","HC BRUTO","SLA%","NS","TME(s)","OCUPAÇÃO%","FILA%","INTERVALOS OK%","STATUS"]
+    cols_day = ["DATA","DIA","TIPO","VOLUME","TMO(s)","HC LÍQ","HC BRUTO","SLA%","NS","TME(s)","OCUPAÇÃO%","FILA%","ABANDONO%","INTERVALOS OK%","STATUS"]
     for j, col in enumerate(cols_day, 1):
         hdr(ws1.cell(row=row_start, column=j), col)
 
     for i, d in enumerate(out.dias, row_start+1):
+        # Compute volume-weighted abandono for the day
+        vol_total_day = sum(iv.volume for iv in d.intervalos) if d.intervalos else 0
+        abd_day = (sum(iv.volume * iv.p_abandon * 100 for iv in d.intervalos) / vol_total_day) if vol_total_day > 0 else 0.0
         vals = [d.data, d.dia_semana, d.tipo, d.volume_total, d.tmo_medio,
                 d.hc_liq_max, d.hc_bruto_max,
                 round(d.sla_ponderado*100,1), d.ns_total, d.tme_medio,
                 round(d.ocupacao_media*100,1), round(d.fila_media*100,1),
+                round(abd_day,2),
                 round(d.intervalos_ok_pct*100,1),
                 "OK" if d.status_sla=="ok" else "Abaixo"]
         zebra = (i % 2 == 0)
@@ -177,7 +181,7 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
             c = ws1.cell(row=i, column=j, value=v)
             c.alignment = ctr; c.border = bdr
             if zebra: c.fill = alt_fill
-            if j == 14:
+            if j == 15:
                 c.font = Font(bold=True, color=ok_col if d.status_sla=="ok" else bad_col, size=11)
             elif j == 8:
                 c.font = Font(bold=True, color=ok_col if d.sla_ponderado >= out.sla_target else bad_col, size=11)
@@ -188,7 +192,7 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
     tot_row = row_start + len(out.dias) + 1
     totals = ["TOTAL MÊS","—","—",
               out.volume_total_mes, "—", "—", "—",
-              round(out.sla_ponderado_mes*100,1), out.ns_total_mes, "—","—","—",
+              round(out.sla_ponderado_mes*100,1), out.ns_total_mes, "—","—","—","—",
               round((out.intervalos_ok_pct or 0)*100,1) if out.intervalos_ok_pct else "—",
               "OK" if out.sla_ponderado_mes >= out.sla_target else "Abaixo"]
     for j, v in enumerate(totals, 1):
@@ -218,7 +222,7 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
     ws.sheet_view.showGridLines = False
     ws.freeze_panes = "A2"
     cols_iv = ["DATA","DIA","TIPO","HORÁRIO","VOLUME","TMO(s)","HC LÍQUIDO","HC BRUTO",
-               "TRÁFEGO(Erl)","FILA(Pw%)","TME(s)","OCUPAÇÃO%","SLA%","NS","STATUS"]
+               "TRÁFEGO(Erl)","FILA(Pw%)","TME(s)","OCUPAÇÃO%","SLA%","NS","ABANDONO%","STATUS"]
     for j, h in enumerate(cols_iv, 1):
         hdr(ws.cell(row=1, column=j), h)
     row = 2
@@ -239,18 +243,19 @@ def export_resultado_xlsx(out: WFMOutput) -> bytes:
                     iv.horario, iv.volume, iv.tmo, iv.hc_liq, iv.hc_bruto,
                     iv.trafico_erl, round(iv.fila_pw*100,2), iv.tme_seg,
                     round(iv.ocupacao*100,2), round(iv.sla_pct*100,2), iv.ns,
+                    round(iv.p_abandon*100,2),
                     "OK" if ok else "Abaixo"]
             zebra = (row % 2 == 0)
             for j, v in enumerate(vals, 1):
                 c = ws.cell(row=row, column=j, value=v)
-                if j in (13, 15):
+                if j in (13, 16):
                     c.font = Font(bold=True, color=ok_col if ok else bad_col, size=11)
                 else:
                     c.font = dat_font
                 c.alignment = ctr; c.border = bdr
                 if zebra: c.fill = alt_fill
             row += 1
-    widths = [12,8,10,10,10,9,12,11,13,11,10,13,10,10,12]
+    widths = [12,8,10,10,10,9,12,11,13,11,10,13,10,10,11,12]
     for j, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(j)].width = w
 

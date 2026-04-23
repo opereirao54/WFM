@@ -1615,7 +1615,7 @@ function render(d){
         <th>Volume</th><th>TMO(s)</th>
         <th>HC Líq</th><th>HC Bruto</th>
         <th>SLA%</th><th>NS</th><th>TME(s)</th>
-        <th>Ocup%</th><th>Fila%</th><th>IV OK%</th><th>Status</th>
+        <th>Ocup%</th><th>Fila%</th><th>Aband%</th><th>IV OK%</th><th>Status</th>
       </tr></thead>
       <tbody id="tbl-body"></tbody>
     </table></div>
@@ -1635,6 +1635,10 @@ function buildTable(d){
   d.dias.forEach((dia,idx)=>{
     const ok=dia.status_sla==='ok';
     const tr=document.createElement('tr');tr.className='drow';tr.dataset.idx=idx;
+    // Compute volume-weighted average abandono for the day from intervals
+    const _abdNum = (dia.intervalos||[]).reduce((s,iv)=>s+(iv.volume||0)*(iv.p_abandon||0),0);
+    const _abdDen = (dia.intervalos||[]).reduce((s,iv)=>s+(iv.volume||0),0);
+    const _abdDay = _abdDen>0 ? _abdNum/_abdDen : 0;
     tr.innerHTML=`
       <td><span class="arrow">▶</span></td>
       <td><b>${dia.data.slice(8)}/${dia.data.slice(5,7)}</b><span style="color:var(--dim);font-family:var(--mono)"> ${dia.data.slice(0,4)}</span></td>
@@ -1648,6 +1652,7 @@ function buildTable(d){
       <td style="color:${dia.tme_medio>30?'var(--red)':'var(--text)'}">${fmt(dia.tme_medio)}</td>
       <td>${fmt(dia.ocupacao_media)}</td>
       <td>${fmt(dia.fila_media)}</td>
+      <td style="color:${_abdDay>5?'var(--red)':_abdDay>2?'var(--amber)':'var(--text)'}">${fmt(_abdDay)}%</td>
       <td style="color:${dia.intervalos_ok_pct>=slaTarget-1?'var(--green)':'var(--amber)'}">${fmt(dia.intervalos_ok_pct)}%</td>
       <td><span class="chip ${ok?'ok':'bad'}">${ok?'✓ OK':'✗ Abaixo'}</span></td>`;
     tbody.appendChild(tr);
@@ -1655,11 +1660,11 @@ function buildTable(d){
     // Interval expand row
     if(dia.intervalos?.length){
       const ivRow=document.createElement('tr');ivRow.className='irow';ivRow.dataset.parent=idx;
-      ivRow.innerHTML=`<td colspan="14"><table class="iv-tbl">
+      ivRow.innerHTML=`<td colspan="15"><table class="iv-tbl">
         <thead><tr>
           <th style="text-align:left">Horário</th><th>Volume</th><th>TMO(s)</th>
           <th>HC Líq</th><th>HC Bruto</th><th>Tráfego</th>
-          <th>Fila%</th><th>TME(s)</th><th>Ocup%</th><th>SLA%</th><th>NS</th><th>ST</th>
+          <th>Fila%</th><th>TME(s)</th><th>Ocup%</th><th>SLA%</th><th>NS</th><th>Aband%</th><th>ST</th>
         </tr></thead>
         <tbody>${dia.intervalos.map(iv=>{
           const ivOk=iv.sla_pct>=slaTarget-0.05;
@@ -1675,6 +1680,7 @@ function buildTable(d){
             <td>${fmt(iv.ocupacao)}</td>
             <td style="color:${ivOk?'var(--green)':'var(--red)'};font-weight:600">${fmt(iv.sla_pct)}%</td>
             <td>${fmtI(Math.round(iv.ns))}</td>
+            <td style="color:${(iv.p_abandon||0)>5?'var(--red)':(iv.p_abandon||0)>2?'var(--amber)':'inherit'}">${fmt(iv.p_abandon||0)}%</td>
             <td><span style="color:${ivOk?'var(--green)':'var(--red)'};font-weight:600">${ivOk?'✓':'✗'}</span></td>
           </tr>`;
         }).join('')}</tbody>
@@ -1693,6 +1699,15 @@ function buildTable(d){
   const agg=aggregateFromDias(d.dias);
   const hcLiqTotal = d.hc_liquido_ref?.total ?? '—';
   const slaOk = agg.sla >= d.kpis.sla_target - 0.005;
+  // Compute volume-weighted average abandono for the month from all intervals
+  let _abdNumTot=0, _abdDenTot=0;
+  (d.dias||[]).forEach(dia=>{
+    (dia.intervalos||[]).forEach(iv=>{
+      _abdNumTot += (iv.volume||0)*(iv.p_abandon||0);
+      _abdDenTot += (iv.volume||0);
+    });
+  });
+  const _abdMes = _abdDenTot>0 ? _abdNumTot/_abdDenTot : 0;
   tot.innerHTML=`
     <td></td><td colspan="2">TOTAL MÊS</td>
     <td>${fmtI(Math.round(agg.volume))}</td>
@@ -1704,6 +1719,7 @@ function buildTable(d){
     <td>${fmt(agg.tme,0)}</td>
     <td>${fmt(agg.ocupacao*100)}%</td>
     <td>${fmt(agg.fila*100)}%</td>
+    <td>${fmt(_abdMes)}%</td>
     <td>${fmt(agg.ivOkPct*100)}%</td>
     <td>${slaOk?'✓ OK':'✗ Abaixo'}</td>`;
   tbody.appendChild(tot);
