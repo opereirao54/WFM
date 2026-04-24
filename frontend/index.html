@@ -130,6 +130,23 @@ input:focus,select:focus{
 }
 input::placeholder{color:var(--placeholder)}
 select option{background:var(--surface)}
+input.input-err,input.input-err:focus{
+  border-color:var(--red);box-shadow:0 0 0 3px rgba(185,28,28,.18)
+}
+.link-btn{
+  background:none;border:none;padding:0;margin:0 0 0 4px;color:var(--accent);
+  font-family:var(--sans);font-size:inherit;font-weight:var(--weight-medium);
+  text-decoration:underline;cursor:pointer
+}
+.link-btn:hover{color:var(--accent2);text-decoration:none}
+
+/* Mostra min/max do range abaixo do slider */
+.slider-field{position:relative}
+.slider-field .slider-minmax{
+  display:flex;justify-content:space-between;margin-top:-2px;
+  font-size:var(--text-2xs);color:var(--dim);font-family:var(--mono);
+  opacity:.7
+}
 
 /* Slider */
 .slider-field{display:flex;flex-direction:column;gap:var(--space-2)}
@@ -1041,12 +1058,30 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 
   <div class="sec-group">
     <div class="sec-label">Shrinkage <span class="info-pill" id="shrink_total_lbl">0%</span></div>
-    <div class="slider-field"><div class="slider-header"><label>Absenteísmo</label><span class="slider-val" id="ab_lbl">0%</span></div><input type="range" id="absenteismo" min="0" max="25" value="0" oninput="sv('ab_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Férias</label><span class="slider-val" id="fv_lbl">0%</span></div><input type="range" id="ferias" min="0" max="20" value="0" oninput="sv('fv_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">0%</span></div><input type="range" id="treinamento" min="0" max="20" value="0" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Reuniões</label><span class="slider-val" id="re_lbl">0%</span></div><input type="range" id="reunioes" min="0" max="15" value="0" oninput="sv('re_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">0%</span></div><input type="range" id="aderencia" min="0" max="20" value="0" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">0%</span></div><input type="range" id="outras" min="0" max="20" value="0" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
+
+    <!-- Modo simples: 1 slider "Shrinkage total" -->
+    <div class="slider-field" id="shrink-simple-wrap">
+      <div class="slider-header">
+        <label>Shrinkage total</label>
+        <span class="slider-val" id="shrink_simple_lbl">0%</span>
+      </div>
+      <input type="range" id="shrink_simple" min="0" max="60" value="0"
+             oninput="_applyShrinkSimple(this.value)">
+      <div style="font-size:10px;color:var(--dim);margin-top:3px;line-height:1.5">
+        Soma ponderada de absenteísmo, férias, treinamentos e demais pausas.
+        <button type="button" class="link-btn" onclick="_toggleShrinkDetailed()" id="shrink-toggle-btn">Personalizar por categoria</button>
+      </div>
+    </div>
+
+    <!-- Modo detalhado (6 sliders, oculto por padrão) -->
+    <div id="shrink-detailed-wrap" style="display:none;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)">
+      <div class="slider-field"><div class="slider-header"><label>Absenteísmo</label><span class="slider-val" id="ab_lbl">0%</span></div><input type="range" id="absenteismo" min="0" max="25" value="0" oninput="sv('ab_lbl',this.value+'%');updateShrinkTotal()"></div>
+      <div class="slider-field"><div class="slider-header"><label>Férias</label><span class="slider-val" id="fv_lbl">0%</span></div><input type="range" id="ferias" min="0" max="20" value="0" oninput="sv('fv_lbl',this.value+'%');updateShrinkTotal()"></div>
+      <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">0%</span></div><input type="range" id="treinamento" min="0" max="20" value="0" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
+      <div class="slider-field"><div class="slider-header"><label>Reuniões</label><span class="slider-val" id="re_lbl">0%</span></div><input type="range" id="reunioes" min="0" max="15" value="0" oninput="sv('re_lbl',this.value+'%');updateShrinkTotal()"></div>
+      <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">0%</span></div><input type="range" id="aderencia" min="0" max="20" value="0" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
+      <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">0%</span></div><input type="range" id="outras" min="0" max="20" value="0" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
+    </div>
   </div>
 
   <div class="sec-group">
@@ -1080,14 +1115,22 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   </div>
 
   <div class="sec-group">
-    <div class="sec-label">Janelas BLOQUEADAS de Entrada</div>
-    <div id="janelas-bloqueadas-list"></div>
-    <button type="button" class="tb" style="margin-top:6px;font-size:11px;padding:4px 10px"
-      onclick="addJanelaBloqueada()">+ Adicionar janela bloqueada</button>
-    <div style="font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px">
-      Faixas em que turnos <b>não podem</b> começar. Você pode adicionar quantas quiser.<br>
-      <b>Ex:</b> operação 24h com bloqueio de <b>00:00–05:59</b> e <b>17:41–23:59</b> — permite entrada só entre 06:00 e 17:40.<br>
-      Sem janelas = entrada livre em qualquer horário.
+    <div class="sec-label">Restrições de Entrada de Turnos</div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);cursor:pointer;user-select:none">
+      <input type="checkbox" id="jb_enabled" onchange="_toggleJanelasEnabled()" style="width:auto;margin:0">
+      Restringir horários em que turnos podem começar
+    </label>
+    <div id="jb-body" style="display:none;margin-top:8px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        <button type="button" class="tb" style="padding:5px 10px;font-size:11px" onclick="_aplicarPresetJanela('comercial')">Só comercial (06–18)</button>
+        <button type="button" class="tb" style="padding:5px 10px;font-size:11px" onclick="_aplicarPresetJanela('sem_madrugada')">Sem madrugada (00–06)</button>
+        <button type="button" class="tb" style="padding:5px 10px;font-size:11px" onclick="_aplicarPresetJanela('limpar')">Limpar</button>
+      </div>
+      <div id="janelas-bloqueadas-list"></div>
+      <button type="button" class="link-btn" style="margin-top:6px;font-size:11px" onclick="addJanelaBloqueada()">+ Adicionar faixa manual</button>
+      <div style="font-size:10px;color:var(--dim);line-height:1.6;margin-top:6px">
+        <b>Ex:</b> 24h com madrugada bloqueada — entradas só entre 06:00 e 17:40.
+      </div>
     </div>
   </div>
 
@@ -1272,6 +1315,71 @@ function _clearDirty(){
   const btn = document.getElementById('run-btn');
   if(btn) btn.classList.remove('pending');
 }
+// ── Input masks / parsers ─────────────────────────────────────
+// Máscara HH:MM — aceita digitação sem :, limita range e destaca inválido
+function _maskHora(el){
+  let s = el.value.replace(/[^\d:]/g,'');
+  if(s.length === 4 && !s.includes(':')) s = s.slice(0,2)+':'+s.slice(2);
+  // valida range
+  const m = s.match(/^(\d{1,2}):?(\d{0,2})$/);
+  el.classList.remove('input-err');
+  if(m){
+    const h = parseInt(m[1]||'0'); const mm = parseInt(m[2]||'0');
+    if(h>24 || mm>59 || (h===24 && mm>0)) el.classList.add('input-err');
+  } else if(s){
+    el.classList.add('input-err');
+  }
+  el.value = s;
+}
+// Parser tolerante de volume: aceita "150k", "150.000", "1,5k", "1500"
+function _parseVolume(s){
+  if(s==null) return 0;
+  let t = String(s).trim().toLowerCase().replace(/\s/g,'').replace(/\./g,'').replace(',','.');
+  let mult = 1;
+  if(t.endsWith('k')){ mult = 1000; t = t.slice(0,-1); }
+  else if(t.endsWith('m')){ mult = 1000000; t = t.slice(0,-1); }
+  const n = parseFloat(t);
+  return isFinite(n) ? Math.round(n*mult) : 0;
+}
+// Adiciona min-max embaixo de cada slider
+function _installSliderMinMax(){
+  document.querySelectorAll('.slider-field input[type=range]').forEach(r=>{
+    const parent = r.parentElement;
+    if(!parent || parent.querySelector('.slider-minmax')) return;
+    const lo = r.min ?? '';
+    const hi = r.max ?? '';
+    const suffix = (parent.querySelector('.slider-val')?.textContent||'').includes('%') ? '%' : '';
+    const div = document.createElement('div');
+    div.className = 'slider-minmax';
+    div.innerHTML = `<span>${lo}${suffix}</span><span>${hi}${suffix}</span>`;
+    parent.appendChild(div);
+  });
+}
+
+// Aplica mascaras ao carregar
+function _installMasks(){
+  ['horario_abertura','horario_fechamento',
+   'horario_abertura_sab','horario_fechamento_sab',
+   'horario_abertura_dom','horario_fechamento_dom'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){
+      el.addEventListener('input', ()=>_maskHora(el));
+      el.setAttribute('inputmode','numeric');
+      el.setAttribute('maxlength','5');
+      el.setAttribute('placeholder', el.placeholder || 'HH:MM');
+    }
+  });
+  // volume: aceita notação "150k" no blur, normaliza o valor
+  const vEl = document.getElementById('volume_mes');
+  if(vEl){
+    vEl.addEventListener('blur', ()=>{
+      const parsed = _parseVolume(vEl.value);
+      if(parsed > 0) vEl.value = String(parsed);
+    });
+    vEl.setAttribute('inputmode','numeric');
+  }
+}
+
 function _wireCalcPendingDirty(){
   // Qualquer input/select do sidebar marca dirty E recalcula o preview.
   document.querySelectorAll('aside input, aside select').forEach(el=>{
@@ -1377,7 +1485,45 @@ function toast(msg, opts){
 }
 
 function sv(id,val){document.getElementById(id).textContent=val}
-function updateShrinkTotal(){const total=parseInt(v('absenteismo')||0)+parseInt(v('ferias')||0)+parseInt(v('treinamento')||0)+parseInt(v('reunioes')||0)+parseInt(v('aderencia')||0)+parseInt(v('outras')||0);const el=document.getElementById('shrink_total_lbl');if(el){el.textContent=total+'%';el.style.color=total>40?'var(--red)':total>25?'var(--amber)':'var(--accent)';}}
+function updateShrinkTotal(){
+  const total=parseInt(v('absenteismo')||0)+parseInt(v('ferias')||0)+parseInt(v('treinamento')||0)+parseInt(v('reunioes')||0)+parseInt(v('aderencia')||0)+parseInt(v('outras')||0);
+  const el=document.getElementById('shrink_total_lbl');
+  if(el){el.textContent=total+'%';el.style.color=total>40?'var(--red)':total>25?'var(--amber)':'var(--accent)';}
+  // Sincroniza o slider simples quando o detalhado muda
+  const simple = document.getElementById('shrink_simple');
+  const simpleLbl = document.getElementById('shrink_simple_lbl');
+  if(simple && simpleLbl){
+    simple.value = total;
+    simpleLbl.textContent = total + '%';
+  }
+}
+// Modo simples: distribui o total em "Outras" (categoria genérica)
+// Deixa as outras 5 categorias em zero — usuário pode detalhar se quiser.
+function _applyShrinkSimple(val){
+  const total = parseInt(val)||0;
+  const simpleLbl = document.getElementById('shrink_simple_lbl');
+  if(simpleLbl) simpleLbl.textContent = total + '%';
+  // Zera todas as outras e joga o valor em "outras" (slider max=20)
+  // Se total > 20, distribui: outras=20 + restante em absenteismo.
+  const set = (id, v) => { const el=document.getElementById(id); if(el){ el.value=v; sv(id.replace(/.*/, id)+'_lbl', v+'%'); }};
+  const s = (id,lbl,v) => { const el=document.getElementById(id); if(el){ el.value=v; const l=document.getElementById(lbl); if(l) l.textContent=v+'%'; } };
+  s('ferias','fv_lbl',0); s('treinamento','tr_lbl',0);
+  s('reunioes','re_lbl',0); s('aderencia','ad_lbl',0);
+  let remain = total;
+  s('outras','ou_lbl',Math.min(remain,20)); remain -= Math.min(remain,20);
+  s('absenteismo','ab_lbl',Math.min(remain,25)); remain -= Math.min(remain,25);
+  // Atualiza label de total
+  const el=document.getElementById('shrink_total_lbl');
+  if(el){ el.textContent=total+'%'; el.style.color=total>40?'var(--red)':total>25?'var(--amber)':'var(--accent)'; }
+}
+function _toggleShrinkDetailed(){
+  const w = document.getElementById('shrink-detailed-wrap');
+  const btn = document.getElementById('shrink-toggle-btn');
+  if(!w) return;
+  const isOpen = w.style.display !== 'none';
+  w.style.display = isOpen ? 'none' : 'block';
+  if(btn) btn.textContent = isOpen ? 'Personalizar por categoria' : 'Ocultar detalhes';
+}
 function v(id){return document.getElementById(id).value}
 function setSlaMode(m){slaMode=m;document.getElementById('btn-w').classList.toggle('on',m==='weighted');document.getElementById('btn-f').classList.toggle('on',m==='interval_floor');document.getElementById('floor-wrap').style.display=m==='interval_floor'?'block':'none'}
 function setSolver(m){solverMode=m;document.getElementById('btn-h').classList.toggle('on',m==='heuristic');document.getElementById('btn-e').classList.toggle('on',m==='exact')}
@@ -1435,11 +1581,34 @@ function addJanelaBloqueada(inicio='', fim=''){
   list.appendChild(row);
 }
 function getJanelasBloqueadas(){
+  // Só retorna janelas quando a restrição está ativa.
+  const ck = document.getElementById('jb_enabled');
+  if(ck && !ck.checked) return [];
   return Array.from(document.querySelectorAll('#janelas-bloqueadas-list .jb-row')).map(r=>{
     const a=r.querySelector('.jb-ini').value.trim();
     const b=r.querySelector('.jb-fim').value.trim();
     return (a && b) ? `${a}-${b}` : '';
   }).filter(s=>s);
+}
+function _toggleJanelasEnabled(){
+  const ck = document.getElementById('jb_enabled');
+  const body = document.getElementById('jb-body');
+  if(body) body.style.display = ck.checked ? 'block' : 'none';
+  if(ck.checked && !document.querySelector('#janelas-bloqueadas-list .jb-row')){
+    _aplicarPresetJanela('sem_madrugada');
+  }
+}
+function _aplicarPresetJanela(preset){
+  const list = document.getElementById('janelas-bloqueadas-list');
+  if(!list) return;
+  list.innerHTML = '';
+  if(preset === 'comercial'){
+    addJanelaBloqueada('00:00','05:59');
+    addJanelaBloqueada('18:00','23:59');
+  } else if(preset === 'sem_madrugada'){
+    addJanelaBloqueada('00:00','05:59');
+  }
+  // 'limpar' → só esvazia
 }
 
 // ── Horários diferenciados para sábado/domingo ────────────────
@@ -1704,7 +1873,7 @@ async function calcular(){
   }, 200);
   try{
     const fd=new FormData();
-    const fields={volume_mes:v('volume_mes'),tmo_base:v('tmo_base'),
+    const fields={volume_mes:_parseVolume(v('volume_mes')),tmo_base:v('tmo_base'),
       sla_target:parseInt(v('sla_target'))/100,tempo_target:v('tempo_target'),
       mes:v('mes'),ano:v('ano'),sla_mode:slaMode,
       interval_floor_pct:parseInt(v('interval_floor_pct'))/100,
@@ -1755,6 +1924,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   updateFdsVisibility();
   checkIs24h();
   updateShrinkTotal();
+  _installMasks();
+  _installSliderMinMax();
   _wireCalcPendingDirty();
 });
 
@@ -2718,6 +2889,7 @@ function _captureFormSnapshot(){
   snap.erlang_mode = erlangMode;
   snap.shift_mode = shiftMode;
   snap.janelas_bloqueadas = getJanelasBloqueadas();
+  snap.jb_enabled = !!document.getElementById('jb_enabled')?.checked;
   snap.dias_funcionamento = getActiveDays();
   snap.hr_fds_distinto = !!document.getElementById('hr_fds_distinto')?.checked;
   return snap;
@@ -2742,6 +2914,11 @@ function _applyFormSnapshot(snap){
     (snap.janelas_bloqueadas||[]).forEach(s=>{
       const [a,b]=String(s).split('-'); if(a&&b) addJanelaBloqueada(a,b);
     });
+  }
+  const jbCk = document.getElementById('jb_enabled');
+  if(jbCk){
+    jbCk.checked = !!(snap.jb_enabled || (snap.janelas_bloqueadas && snap.janelas_bloqueadas.length));
+    _toggleJanelasEnabled();
   }
   // dias funcionamento: aplica nos chips do DOM (fonte única de verdade)
   if(Array.isArray(snap.dias_funcionamento)){
