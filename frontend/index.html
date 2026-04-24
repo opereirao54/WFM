@@ -9,7 +9,7 @@
   /* ── Surfaces & text ──────────────────────────────────────── */
   --bg:#F6F8FB;--surface:#FFFFFF;--surface2:#EEF1F6;--surface3:#E2E6EE;
   --border:#D4DAE5;--border2:#B8C0CF;
-  --text:#0F1419;--muted:#4B5563;--dim:#7A8497;--placeholder:#9AA3B5;
+  --text:#0F1419;--muted:#4B5563;--dim:#5A6476;--placeholder:#7A8497;
 
   /* ── Brand: indigo profundo + coral accent ────────────────── */
   --accent:#1E3A8A;--accent2:#3151B5;--accent-light:#EEF2FF;
@@ -743,6 +743,37 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   *,*::before,*::after{transition:none!important;animation:none!important}
 }
 
+/* ── Skip-to-content (A11y) ───────────────────────── */
+.skip-link{
+  position:absolute;left:-9999px;top:0;z-index:10001;
+  padding:10px 16px;background:var(--accent);color:#fff;
+  border-radius:0 0 var(--radius-md) 0;text-decoration:none;
+  font-weight:var(--weight-semibold)
+}
+.skip-link:focus{left:0}
+
+/* ── Mobile: sidebar colapsa em < 900px ───────────────────── */
+@media (max-width:900px){
+  body{grid-template-columns:1fr}
+  aside{position:fixed;left:0;top:52px;height:calc(100vh - 52px);
+    width:280px;max-width:80vw;transform:translateX(-100%);
+    transition:transform var(--dur-base) var(--ease);z-index:90;
+    box-shadow:var(--shadow-xl)}
+  body.sidebar-open aside{transform:translateX(0)}
+  body.sidebar-open::after{
+    content:'';position:fixed;inset:52px 0 0 0;background:rgba(0,0,0,.4);
+    z-index:89;animation:fadeIn var(--dur-base) var(--ease)
+  }
+  .hbtn-menu{display:inline-flex!important}
+  .hero{grid-template-columns:1fr!important}
+  .hero-insight{grid-column:1/-1}
+  table.mt td,table.mt th{padding:8px 6px;font-size:var(--text-sm)}
+}
+.hbtn-menu{display:none;margin-right:var(--space-2);padding:6px;background:transparent;
+  border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);cursor:pointer;
+  align-items:center;justify-content:center;min-width:36px;min-height:36px}
+.hbtn-menu:hover{background:var(--surface2)}
+
 /* ── Modal (salvamento / replicação) ───────────────────────── */
 .modal-backdrop{
   position:fixed;inset:0;background:rgba(15,20,25,.55);backdrop-filter:blur(3px);
@@ -844,6 +875,7 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Pular para o conteúdo</a>
 <div id="tip"></div>
 
 <!-- ═══════════ Modal genérico ═══════════ -->
@@ -855,6 +887,9 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 
 
 <header>
+  <button class="hbtn-menu" onclick="document.body.classList.toggle('sidebar-open')" aria-label="Abrir/fechar menu lateral">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+  </button>
   <div class="logo">
     <div class="logo-mark" title="WFM Engine">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -1246,7 +1281,7 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 </div>
 </aside>
 
-<main id="main">
+<main id="main" role="main" tabindex="-1">
   <div class="empty" id="empty">
     <svg class="empty-illust" viewBox="0 0 240 160" width="240" height="160" fill="none" stroke-linecap="round" stroke-linejoin="round">
       <!-- Background grid -->
@@ -1471,19 +1506,50 @@ function _lpShow(sla, hc, tme){
   const c = document.getElementById('lp-tme'); if(c) c.textContent=tme;
 }
 
-// ── Modal helpers ─────────────────────────────────────────────
+// ── Modal helpers (com focus trap) ─────────────────────────────
+let _modalPrevFocus = null;
 function openModal(html){
   const root = document.getElementById('modal-root');
   document.getElementById('modal-content').innerHTML = html;
+  _modalPrevFocus = document.activeElement;
   root.classList.add('open');
   root.onclick = (e)=>{ if(e.target===root) closeModal(); };
-  document.addEventListener('keydown', _modalEsc);
+  document.addEventListener('keydown', _modalKey);
+  // Move foco pro primeiro elemento focável do modal
+  setTimeout(()=>{
+    const first = _modalFocusable()[0];
+    if(first) first.focus();
+  }, 30);
 }
 function closeModal(){
   document.getElementById('modal-root').classList.remove('open');
-  document.removeEventListener('keydown', _modalEsc);
+  document.removeEventListener('keydown', _modalKey);
+  // Restaura foco
+  if(_modalPrevFocus && typeof _modalPrevFocus.focus === 'function'){
+    try{ _modalPrevFocus.focus(); }catch(e){}
+  }
+  _modalPrevFocus = null;
 }
-function _modalEsc(e){ if(e.key==='Escape') closeModal(); }
+function _modalFocusable(){
+  const root = document.getElementById('modal-content');
+  if(!root) return [];
+  return Array.from(root.querySelectorAll(
+    'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+  )).filter(el => el.offsetParent !== null);
+}
+function _modalKey(e){
+  if(e.key === 'Escape'){ closeModal(); return; }
+  if(e.key !== 'Tab') return;
+  // Focus trap
+  const items = _modalFocusable();
+  if(!items.length) return;
+  const first = items[0], last = items[items.length-1];
+  if(e.shiftKey && document.activeElement === first){
+    e.preventDefault(); last.focus();
+  } else if(!e.shiftKey && document.activeElement === last){
+    e.preventDefault(); first.focus();
+  }
+}
 
 // ── Toast helpers ─────────────────────────────────────────────
 function toast(msg, opts){
@@ -1509,7 +1575,7 @@ function toast(msg, opts){
       <div class="toast-title">${title}</div>
       <div class="toast-msg">${msg}</div>
     </div>
-    <button class="toast-close" onclick="this.parentElement.remove()">×</button>`;
+    <button class="toast-close" aria-label="Fechar notificação" onclick="this.parentElement.remove()">×</button>`;
   document.getElementById('toast-stack').appendChild(el);
   setTimeout(()=>{ if(el.parentElement) el.style.opacity='0'; }, ttl-300);
   setTimeout(()=>{ if(el.parentElement) el.remove(); }, ttl);
@@ -1607,7 +1673,7 @@ function addJanelaBloqueada(inicio='', fim=''){
     <input type="text" class="jb-ini" placeholder="00:00" value="${inicio}" maxlength="5">
     <span style="color:var(--dim)">até</span>
     <input type="text" class="jb-fim" placeholder="05:59" value="${fim}" maxlength="5">
-    <button type="button" class="jb-del" title="Remover" onclick="this.parentElement.remove()"><svg class="ico" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <button type="button" class="jb-del" title="Remover faixa" aria-label="Remover faixa bloqueada" onclick="this.parentElement.remove()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
   `;
   list.appendChild(row);
 }
