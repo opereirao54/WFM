@@ -345,6 +345,100 @@ def extract_mes_ano_from_xlsx(wb):
     return None
 
 
+def suggest_operation_from_curves(curva_sem, curva_sab, curva_dom, dias,
+                                   threshold_frac: float = 0.01) -> dict:
+    """
+    Sugere horário de abertura/fechamento e dias de funcionamento a partir
+    das curvas parseadas.
+
+    - Para cada curva intraday, detecta a janela [primeiro slot, último slot]
+      onde o peso ≥ threshold_frac × peso_máximo da curva. Gera
+      {abertura, fechamento}.
+    - Para dias de funcionamento:
+      * se dias_mes tem dados, usa os pesos por dia-da-semana
+      * senão infere pelos totais de cada curva intraday
+    - Também sinaliza `diferentes_horarios_fds=True` quando a janela de
+      sábado ou domingo difere da de dia útil em ≥ 1h (6 slots de 10min).
+
+    Retorna dict pronto para o front aplicar com um clique.
+    """
+    def detect_window(pesos):
+        if not pesos:
+            return None
+        max_p = max(pesos)
+        if max_p <= 0:
+            return None
+        th = max_p * threshold_frac
+        active = [i for i, p in enumerate(pesos) if p >= th]
+        if not active:
+            return None
+        s0, s1 = min(active), max(active)
+        start_m = s0 * 30
+        end_m   = (s1 + 1) * 30
+        # 24:00 vira 23:59 para caber nos campos.
+        if end_m >= 1440:
+            fech = "23:59"
+        else:
+            fech = f"{end_m // 60:02d}:{end_m % 60:02d}"
+        return {
+            "abertura":   f"{start_m // 60:02d}:{start_m % 60:02d}",
+            "fechamento": fech,
+            "slot_inicio": s0,
+            "slot_fim":    s1,
+        }
+
+    sem_w = detect_window(curva_sem.pesos) if curva_sem else None
+    sab_w = detect_window(curva_sab.pesos) if curva_sab else None
+    dom_w = detect_window(curva_dom.pesos) if curva_dom else None
+
+    def has_volume(c):
+        return c is not None and sum(c.pesos) > 0.01
+
+    active_days: List[str] = []
+    if has_volume(curva_sem):
+        active_days += ["seg", "ter", "qua", "qui", "sex"]
+    if has_volume(curva_sab):
+        active_days.append("sab")
+    if has_volume(curva_dom):
+        active_days.append("dom")
+
+    # Curva_Dias é mais autoritativa quando presente: quais weekdays têm peso
+    # relevante no mês alvo.
+    if dias:
+        import datetime as _dt
+        by_dow = {i: 0.0 for i in range(7)}
+        for d in dias:
+            try:
+                dt = _dt.date.fromisoformat(d.data)
+                by_dow[dt.weekday()] += d.peso_pct
+            except Exception:
+                pass
+        total = sum(by_dow.values())
+        if total > 0:
+            DOW = {0:"seg",1:"ter",2:"qua",3:"qui",4:"sex",5:"sab",6:"dom"}
+            ORDER = ["seg","ter","qua","qui","sex","sab","dom"]
+            dias_from_file = {DOW[wd] for wd, p in by_dow.items() if p / total > 0.005}
+            if dias_from_file:
+                active_days = sorted(dias_from_file, key=lambda x: ORDER.index(x))
+
+    # Detecção de horários FDS distintos do dia útil (≥ 1h de diferença).
+    def _diff_janela(a, b):
+        if not a or not b:
+            return False
+        return abs(a["slot_inicio"] - b["slot_inicio"]) >= 6 or \
+               abs(a["slot_fim"]    - b["slot_fim"])    >= 6
+
+    diferentes_fds = _diff_janela(sem_w, sab_w) or _diff_janela(sem_w, dom_w)
+
+    return {
+        "horario_util":    sem_w,
+        "horario_sabado":  sab_w,
+        "horario_domingo": dom_w,
+        "dias_funcionamento": active_days if active_days else None,
+        "diferentes_horarios_fds": bool(diferentes_fds),
+    }
+
+
 def preview_excel_upload(file_bytes: bytes) -> dict:
     """
     Parse flexível do Excel e retorna preview com metadados de ajuste.
@@ -404,12 +498,19 @@ def preview_excel_upload(file_bytes: bytes) -> dict:
     if result:
         periodo = {"mes": result[0], "ano": result[1]}
 
+    # Sugestão de operação (dias ativos + janelas) baseada nas curvas parseadas.
+    _cs = curvas.get("semana");  _cur_sem = CurvaIntraday(pesos=_cs["pesos"], fatores_tmo=_cs["fatores_tmo"]) if _cs else None
+    _cb = curvas.get("sabado");  _cur_sab = CurvaIntraday(pesos=_cb["pesos"], fatores_tmo=_cb["fatores_tmo"]) if _cb else None
+    _cd = curvas.get("domingo"); _cur_dom = CurvaIntraday(pesos=_cd["pesos"], fatores_tmo=_cd["fatores_tmo"]) if _cd else None
+    sugestoes = suggest_operation_from_curves(_cur_sem, _cur_sab, _cur_dom, dias_raw)
+
     return {
         "curvas": curvas,
         "dias": dias_out,
         "dias_meta": dias_meta,
         "periodo": periodo,
         "avisos": avisos,
+        "sugestoes": sugestoes,
     }
 
 

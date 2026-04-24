@@ -170,31 +170,36 @@ def _min_interval_sla_ok(
     first_slot: int = 0,
     last_slot: int = 144,
     wrap: bool = False,
+    tol_pp: float = 0.05,
 ) -> bool:
     """
-    Verifica se NENHUM intervalo de 30min na janela operacional fica abaixo do SLA target.
-    Impede que o post-trim produza buracos em intervalos de alta demanda que são
-    mascarados pela SLA ponderada global.
+    Verifica se NENHUM intervalo de 30min na janela operacional com volume
+    relevante fica abaixo do SLA target - tol_pp.
+
+    Intervalos com volume muito baixo (< 3% do pico diário) são ignorados:
+    eles não afetam o SLA ponderado e travariam a trim artificialmente.
+
+    tol_pp é parametrizável — o post-trim escala essa tolerância com a
+    margem atual de SLA global para evitar overstaffing estrutural.
     """
     from .erlang import calc_sla, calc_traffic
     cov = coverage_from_schedule(trial, shift_type, pl, wrap)
+    peak_vol = float(vol_curve.max()) if vol_curve.size else 0.0
+    vol_relevante = max(peak_vol * 0.03, 0.01)  # 3% do pico ou 0.01 (piso)
     for slot in range(INTERVALS_30MIN):
         i0       = slot * 3
         slot_end = i0 + 3
         if slot_end <= first_slot or i0 >= last_slot:
             continue
         vol30 = float(vol_curve[i0:i0+3].sum())
-        if vol30 < 0.01:
+        if vol30 < vol_relevante:
             continue
         tmo30  = float((tmo_curve[i0:i0+3] * vol_curve[i0:i0+3]).sum() / (vol30 + 1e-9))
         cov30  = float(cov[i0:i0+3].mean())
         u_avg  = sum(calc_traffic(vol_curve[i0+k], tmo_curve[i0+k]) for k in range(3)) / 3
         m      = max(1, math.ceil(cov30)) if cov30 > 0 else 0
         s30    = calc_sla(m, u_avg, t_target, tmo30) if m > 0 else 0.0
-        # Tolerância por intervalo: 5pp abaixo do target.
-        # Protege contra buracos graves (ex: 57%) mas permite variações
-        # naturais de ±2-3pp causadas por rounding de ceil(cov30).
-        if s30 < sla_target - 0.05:
+        if s30 < sla_target - tol_pp:
             return False
     return True
 
@@ -220,8 +225,9 @@ def _post_trim(
       - cobertura física >= min_physical (se configurado)
     """
     # Threshold: com Erlang C correto, SLA já é próxima do real.
-    # Margem pequena e fixa evita over-trim.
-    trim_margin = 0.005
+    # Margem reduzida de 0.5pp → 0.2pp para apertar o SLA contra o alvo
+    # e reduzir overstaffing estrutural.
+    trim_margin = 0.002
 
     for _ in range(500):
         sla_now = weighted_sla_30min(schedule, shift_type, pl,
@@ -229,6 +235,15 @@ def _post_trim(
                                      first_slot, last_slot, wrap)
         if sla_now < sla_target + trim_margin:
             break
+
+        # Tolerância por intervalo escala com a margem de SLA atual:
+        # quanto mais folga temos, mais agressivos podemos ser num slot
+        # individual. Evita que UM intervalo de pico trave o trim global.
+        extra_margin = max(0.0, sla_now - sla_target - trim_margin)
+        # 5pp quando estamos no alvo; cresce com a folga até 30pp.
+        # 30pp é suficientemente permissivo para destravar o trim sem
+        # permitir buracos catastróficos (sla < 50% num pico).
+        tol_pp = min(0.30, 0.05 + extra_margin * 2.5)
 
         best_idx, best_sla = None, -1.0
         for idx, (s, n) in enumerate(schedule):
@@ -243,10 +258,9 @@ def _post_trim(
                 continue
             if not physical_coverage_ok(trial, shift_type, hc_liq, min_physical, wrap):
                 continue
-            # Critério triplo: SLA média OK + nenhum intervalo individual abaixo + física OK
             if not _min_interval_sla_ok(trial, shift_type, pl,
                                         vol_curve, tmo_curve, t_target, sla_target,
-                                        first_slot, last_slot, wrap):
+                                        first_slot, last_slot, wrap, tol_pp=tol_pp):
                 continue
             ts = weighted_sla_30min(trial, shift_type, pl,
                                     vol_curve, tmo_curve, t_target, sla_target,
@@ -657,7 +671,7 @@ def unified_pool_solve(
     first_slot: int = 0,
     last_slot:  int = 144,
     milp_time_limit: float = 10.0,
-    mip_rel_gap: float = 0.02,
+    mip_rel_gap: float = 0.005,
     min_physical: int = 0,
     wrap: bool = False,
     entry_allowed_mask: Optional[np.ndarray] = None,
@@ -990,24 +1004,28 @@ def _unified_post_trim(
             num += v30*s; den += v30
         return num/den if den > 0 else 0.0
 
-    def iv_ok_after(candidate_sab, candidate_dom, candidate_812):
-        """Verifica que nenhum intervalo individual fica abaixo de target-5pp
-        em NENHUMA das três escalas (util, sab, dom)."""
+    def iv_ok_after(candidate_sab, candidate_dom, candidate_812, tol_pp=0.05):
+        """Verifica que nenhum intervalo individual com volume relevante fica
+        abaixo de target-tol_pp em NENHUMA das três escalas (util, sab, dom).
+        Intervalos com vol < 3% do pico do dia são ignorados para não
+        travar a trim em caudas de baixa demanda."""
         from .erlang import calc_sla, calc_traffic
 
         def _check(cov_arr, vol_arr, tmo_arr):
+            peak = float(vol_arr.max()) if vol_arr.size else 0.0
+            vol_rel = max(peak * 0.03, 0.01)
             for slot in range(INTERVALS_30MIN):
                 i0 = slot*3
                 if not wrap:
                     if i0+3<=first_slot or i0>=last_slot: continue
                 v30=float(vol_arr[i0:i0+3].sum())
-                if v30<0.01: continue
+                if v30 < vol_rel: continue
                 t30=float((tmo_arr[i0:i0+3]*vol_arr[i0:i0+3]).sum()/(v30+1e-9))
                 c30=float(cov_arr[i0:i0+3].mean())
                 u=sum(calc_traffic(vol_arr[i0+k],tmo_arr[i0+k]) for k in range(3))/3
                 m=max(1,math.ceil(c30)) if c30>0 else 0
                 s=calc_sla(m,u,t_target,t30) if m>0 else 0.0
-                if s < sla_target - 0.05: return False
+                if s < sla_target - tol_pp: return False
             return True
 
         # Util = cobertura dos 3 pools
@@ -1029,9 +1047,15 @@ def _unified_post_trim(
         return True
 
     # Limita sched_812 a slots no início e fim do dia (não usa 6:20 do pool 8:12)
+    # Margem reduzida de 0.5pp → 0.2pp para apertar o SLA contra o alvo.
     for _ in range(500):
         su = sla_util()
-        if su < sla_target + 0.005: break
+        if su < sla_target + 0.002: break
+
+        # Tolerância por intervalo escala com a margem de SLA atual:
+        # quanto mais folga, mais agressivos podemos ser num slot de pico.
+        extra_margin = max(0.0, su - sla_target - 0.002)
+        iv_tol = min(0.30, 0.05 + extra_margin * 2.5)  # 5pp..30pp
 
         best_pool, best_idx, best_sla = None, None, -1.0
 
@@ -1052,7 +1076,7 @@ def _unified_post_trim(
                 t_812 = trial if pool_name=="812" else sched_812
 
                 # Verifica util, sab, dom e por intervalo
-                if not iv_ok_after(t_sab, t_dom, t_812): continue
+                if not iv_ok_after(t_sab, t_dom, t_812, tol_pp=iv_tol): continue
                 if pool_name=="sab" and hs.max()>0.01:
                     if wsla(t_sab,"6:20",pl_620,vol_sab,tmo_sab) < sla_target: continue
                 if pool_name=="dom" and hd.max()>0.01:

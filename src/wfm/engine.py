@@ -257,15 +257,19 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     vol_sab_10m,  tmo_sab_10m  = build_day_curves(vol_sab_avg,  curva_sab, inp.tmo_base)
     vol_dom_10m,  tmo_dom_10m  = build_day_curves(vol_dom_avg,  curva_dom, inp.tmo_base)
 
-    # Zera volume fora da janela operacional de cada tipo de dia. Com isso
-    # a demanda Erlang e o hc mínimo ficam 0 fora da janela, mas o mesmo
-    # arquivo de curva pode ser reutilizado entre util/sab/dom com janelas
-    # diferentes (ex.: util 08-20, sáb 08-14).
+    # Ao aplicar a janela operacional, zerar volume fora seria perder parte
+    # do volume mensal. Em vez disso redistribuimos proporcionalmente para
+    # os slots dentro da janela — preservando `vol_dia` (e portanto
+    # `volume_mes`) como verdade matemática.
     def _zero_outside(arr_v, arr_t, fs, ls):
         if fs == 0 and ls == 144:
             return arr_v, arr_t
         av = arr_v.copy(); at = arr_t.copy()
+        total_orig = float(av.sum())
         av[:fs] = 0.0; av[ls:] = 0.0
+        total_new = float(av.sum())
+        if total_new > 0 and total_orig > 0:
+            av *= total_orig / total_new
         return av, at
 
     vol_util_10m, tmo_util_10m = _zero_outside(vol_util_10m, tmo_util_10m, first_slot_op, last_slot_close)
@@ -303,7 +307,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         inp.sla_target, inp.tempo_target,
         union_first, union_last,
         milp_time_limit  = milp_limit,
-        mip_rel_gap      = 0.02,
+        mip_rel_gap      = 0.005,
         min_physical     = _min_hc,
         wrap             = is_24h,
         entry_allowed_mask = entry_allowed_mask,

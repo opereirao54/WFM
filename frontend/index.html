@@ -219,6 +219,15 @@ input[type=range]::-webkit-slider-thumb:active{transform:scale(1.05)}
 .run-btn:disabled{background:var(--border2);color:var(--muted);cursor:not-allowed;
   box-shadow:none;transform:none}
 .run-btn svg{width:16px;height:16px}
+.run-btn.pending{
+  background:linear-gradient(180deg,var(--amber) 0%,#8a5a00 100%);
+  box-shadow:0 4px 12px rgba(180,83,9,.30);
+  animation:rbpulse 2.2s ease-in-out infinite
+}
+@keyframes rbpulse{
+  0%,100%{box-shadow:0 4px 12px rgba(180,83,9,.30)}
+  50%{box-shadow:0 4px 16px rgba(180,83,9,.50)}
+}
 .sidebar-footer{padding:var(--space-4);border-top:1px solid var(--border);background:var(--surface)}
 .sidebar-footer .tb{margin-top:var(--space-2)}
 
@@ -894,7 +903,7 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
       Operação 24h detectada · turnos noturnos ativos
     </div>
     <div style="font-size:10px;color:var(--dim);line-height:1.6">
-      Para operação 24h use <b>00:00</b> a <b>23:59</b> · ou deixe vazio para auto-detectar.
+      Para operação 24h use <b>00:00</b> a <b>23:59</b> · vazio = <b>assume 24h</b>. Importe uma curva para detectar automaticamente.
     </div>
 
     <div style="margin-top:10px">
@@ -1031,13 +1040,13 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 <div class="tab-panel" id="panel-adv">
 
   <div class="sec-group">
-    <div class="sec-label">Shrinkage <span class="info-pill" id="shrink_total_lbl">11%</span></div>
+    <div class="sec-label">Shrinkage <span class="info-pill" id="shrink_total_lbl">0%</span></div>
     <div class="slider-field"><div class="slider-header"><label>Absenteísmo</label><span class="slider-val" id="ab_lbl">0%</span></div><input type="range" id="absenteismo" min="0" max="25" value="0" oninput="sv('ab_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Férias</label><span class="slider-val" id="fv_lbl">0%</span></div><input type="range" id="ferias" min="0" max="20" value="0" oninput="sv('fv_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Treinamento</label><span class="slider-val" id="tr_lbl">0%</span></div><input type="range" id="treinamento" min="0" max="20" value="0" oninput="sv('tr_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Reuniões</label><span class="slider-val" id="re_lbl">0%</span></div><input type="range" id="reunioes" min="0" max="15" value="0" oninput="sv('re_lbl',this.value+'%');updateShrinkTotal()"></div>
     <div class="slider-field"><div class="slider-header"><label>Aderência</label><span class="slider-val" id="ad_lbl">0%</span></div><input type="range" id="aderencia" min="0" max="20" value="0" oninput="sv('ad_lbl',this.value+'%');updateShrinkTotal()"></div>
-    <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">11%</span></div><input type="range" id="outras" min="0" max="20" value="11" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
+    <div class="slider-field"><div class="slider-header"><label>Outras</label><span class="slider-val" id="ou_lbl">0%</span></div><input type="range" id="outras" min="0" max="20" value="0" oninput="sv('ou_lbl',this.value+'%');updateShrinkTotal()"></div>
   </div>
 
   <div class="sec-group">
@@ -1057,8 +1066,8 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   <div class="sec-group">
     <div class="sec-label">Restrições de Dimensionamento</div>
     <div class="slider-field">
-      <div class="slider-header"><label>Overstaffing máximo</label><span class="slider-val" id="ov_lbl">1%</span></div>
-      <input type="range" id="max_overstaffing" min="1" max="40" value="1" oninput="sv('ov_lbl',this.value+'%')">
+      <div class="slider-header"><label>Overstaffing máximo</label><span class="slider-val" id="ov_lbl">5%</span></div>
+      <input type="range" id="max_overstaffing" min="1" max="40" value="5" oninput="sv('ov_lbl',this.value+'%')">
     </div>
     <div class="fld">
       <label>Máx. horários de entrada por pool</label>
@@ -1146,6 +1155,12 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 
 </div>
 <div class="sidebar-footer">
+  <!-- Efeito estimado (client-side Erlang, feedback imediato) -->
+  <div id="live-preview" style="font-size:11px;color:var(--muted);background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;margin-bottom:8px;display:flex;gap:10px;justify-content:space-around">
+    <div style="text-align:center"><div style="font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">SLA estimado</div><div id="lp-sla" style="font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px">—</div></div>
+    <div style="text-align:center"><div style="font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">HC pico</div><div id="lp-hc" style="font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px">—</div></div>
+    <div style="text-align:center"><div style="font-size:9px;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">TME est.</div><div id="lp-tme" style="font-family:var(--mono);font-weight:700;color:var(--accent);font-size:13px">—</div></div>
+  </div>
   <button class="run-btn" id="run-btn" onclick="calcular()">
     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
     Calcular Dimensionamento
@@ -1241,6 +1256,82 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
 let slaMode='weighted',solverMode='heuristic',erlangMode='erlang_c',shiftMode='both',uploadedFile=null,validationOk=true,lastResult=null;
 let historicoFile=null;
 
+// ── Estado: resultado anterior para diff e "cálculo pendente" ─
+let _prevResult = null;  // snapshot do cálculo anterior (para mostrar delta)
+let _calcDirty  = false; // true quando usuário mexeu em qualquer input após um cálculo
+
+function _markDirty(){
+  if(!lastResult) return;  // só marca como dirty se havia um resultado
+  if(_calcDirty) return;
+  _calcDirty = true;
+  const btn = document.getElementById('run-btn');
+  if(btn) btn.classList.add('pending');
+}
+function _clearDirty(){
+  _calcDirty = false;
+  const btn = document.getElementById('run-btn');
+  if(btn) btn.classList.remove('pending');
+}
+function _wireCalcPendingDirty(){
+  // Qualquer input/select do sidebar marca dirty E recalcula o preview.
+  document.querySelectorAll('aside input, aside select').forEach(el=>{
+    el.addEventListener('input', ()=>{ _markDirty(); livePreview(); });
+    el.addEventListener('change', ()=>{ _markDirty(); livePreview(); });
+  });
+  document.querySelectorAll('.day-chip, .jb-row input').forEach(el=>{
+    el.addEventListener('click', ()=>{ _markDirty(); livePreview(); });
+  });
+  livePreview();
+}
+
+// Estima SLA/HC/TME aproximados usando Erlang C client-side, sem chamar o
+// backend. Serve como feedback imediato enquanto o usuário mexe em volume,
+// TMO, SLA e horário. Valores são aproximados (pega o pico via dia útil
+// típico, ignora shrinkage/PL, assume curva bimodal simples).
+function livePreview(){
+  try{
+    const vol = parseFloat(v('volume_mes'))||0;
+    const tmo = parseFloat(v('tmo_base'))||0;
+    const tgt = (parseInt(v('sla_target'))||80)/100;
+    const tt  = parseFloat(v('tempo_target'))||20;
+    const ab  = v('horario_abertura').trim();
+    const fe  = v('horario_fechamento').trim();
+    if(!vol || !tmo){ return _lpShow('—','—','—'); }
+
+    // Dias úteis ativos num mês (~22) e janela operacional em horas.
+    const days = (getActiveDays()||[]).length || 7;
+    const dias_util_mes = Math.max(1, Math.round(days / 7 * 22));
+    const t2m = (s)=>{ if(!s) return null; const [h,m]=s.split(':').map(Number); return h*60+m; };
+    let ab_m = t2m(ab), fe_m = t2m(fe);
+    if(ab_m===null || fe_m===null || fe_m<=ab_m){ ab_m=0; fe_m=24*60; }
+    const horas_op = Math.max(1,(fe_m-ab_m)/60);
+
+    // Volume do dia útil típico e chamadas/segundo no pico (fator 1.5 sobre média)
+    const vol_dia = vol / Math.max(1, dias_util_mes);
+    const peak_factor = 1.5;
+    const calls_per_sec_peak = vol_dia * peak_factor / (horas_op * 3600);
+    const u = calls_per_sec_peak * tmo;  // tráfego (Erlang)
+    if(!isFinite(u) || u<=0){ return _lpShow('—','—','—'); }
+
+    // Menor m inteiro tal que SLA(m,u,tt,tmo) >= target
+    let m = Math.max(1, Math.ceil(u)+1);
+    for(let i=0;i<200;i++){
+      const s = jsCalcSLA(m, u, tt, tmo);
+      if(s >= tgt) break;
+      m++;
+    }
+    const sla_est = jsCalcSLA(m,u,tt,tmo)*100;
+    const tme_est = jsTME(m,u,tmo);
+    // HC pico = m (líquido). Usuário entende "quantos vão estar logados no pico".
+    _lpShow(sla_est.toFixed(1)+'%', String(m), (tme_est<9000?tme_est.toFixed(0)+'s':'—'));
+  }catch(e){ /* silencioso */ }
+}
+function _lpShow(sla, hc, tme){
+  const a = document.getElementById('lp-sla'); if(a) a.textContent=sla;
+  const b = document.getElementById('lp-hc');  if(b) b.textContent=hc;
+  const c = document.getElementById('lp-tme'); if(c) c.textContent=tme;
+}
+
 // ── Modal helpers ─────────────────────────────────────────────
 function openModal(html){
   const root = document.getElementById('modal-root');
@@ -1307,10 +1398,15 @@ function setActiveDays(days){
   updateFdsVisibility();
 }
 function toggleDay(el){
+  const turningOff = el.classList.contains('on');
   el.classList.toggle('on');
   updateFdsVisibility();
-  // Qualquer edição manual → volta pra preset custom
   document.getElementById('preset').value='custom';
+  // Se há curva carregada E usuário desligou um dia, avisar sobre redistribuição.
+  if(turningOff && uploadedFile){
+    toast('Dia desligado. O peso dele será <b>redistribuído proporcionalmente</b> nos outros dias — o volume mensal total é preservado.',
+      {kind:'info', title:'Redistribuição automática', ttl:4500});
+  }
 }
 function updateFdsVisibility(){
   const active=getActiveDays();
@@ -1386,6 +1482,7 @@ async function handleUpload(inp){
   const nm=document.getElementById('nm-excel');
   nm.textContent=uploadedFile?uploadedFile.name:'Nenhum arquivo selecionado';
   nm.className='uname'+(uploadedFile?' loaded':'');
+  _updateFdsSlidersVisibility();
   if(!uploadedFile){
       document.getElementById('preview-curva').style.display='none';
       validationOk=true;
@@ -1394,31 +1491,57 @@ async function handleUpload(inp){
   const vb=document.getElementById('val-box');
   vb.className='val-box';vb.textContent='Analisando arquivo...';vb.style.display='block';
   document.getElementById('preview-curva').style.display='none';
-  
+
   const fd=new FormData();fd.append('curvas_excel',uploadedFile);
   const resp=await fetch('/curva/preview',{method:'POST',body:fd});
   const data=await resp.json();
-  
+
   if(data.erro){
       validationOk=false;
       vb.className='val-box err';
       vb.innerHTML='✗ Erro: '+data.erro;
       return;
   }
-  
+
   vb.style.display='none';
   renderCurvaPreview(data);
 }
 
+// Quando há Excel carregado, os sliders de volume sáb/dom são ignorados
+// pelo engine. Mostra um aviso visual em vez de deixar o usuário mexer
+// em controles que não têm efeito.
+function _updateFdsSlidersVisibility(){
+  const wrap = document.getElementById('sec-fds');
+  if(!wrap) return;
+  const overlay = document.getElementById('fds-ignored-overlay');
+  const hasFile = !!uploadedFile;
+  if(hasFile){
+    if(!overlay){
+      const msg = document.createElement('div');
+      msg.id = 'fds-ignored-overlay';
+      msg.style.cssText = 'font-size:10px;color:var(--amber);background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:6px;padding:6px 9px;margin-top:6px;line-height:1.5';
+      msg.innerHTML = '⚠ Curva Excel carregada — estes sliders são <b>ignorados</b>. Volumes por dia vêm do arquivo.';
+      wrap.appendChild(msg);
+    }
+    wrap.querySelectorAll('input[type=range]').forEach(i=>{i.disabled=true; i.style.opacity='.4';});
+  } else {
+    if(overlay) overlay.remove();
+    wrap.querySelectorAll('input[type=range]').forEach(i=>{i.disabled=false; i.style.opacity='';});
+  }
+}
+
+// Mantém a última sugestão do backend para o botão "Aplicar" usar.
+let _ultimaSugestao = null;
+
 function renderCurvaPreview(data) {
   const pbox = document.getElementById('preview-curva');
   pbox.style.display = 'block';
-  
+
   let html = `<div style="font-size:12px; font-weight:600; margin-bottom:8px; color:var(--accent)">Resumo da Curva</div>`;
-  
+
   const dias = data.curvas;
   const labels = {semana: 'Dias Úteis', sabado: 'Sábado', domingo: 'Domingo'};
-  
+
   Object.keys(labels).forEach(k => {
       const c = dias[k];
       if(!c) {
@@ -1436,7 +1559,7 @@ function renderCurvaPreview(data) {
           </div>`;
       }
   });
-  
+
   if (data.dias_meta) {
       const dm = data.dias_meta;
       let status = dm.ajustada ? `<span style="color:var(--amber)">Ajustados (${dm.soma_original}% → 100%)</span>` : `<span style="color:var(--green)">OK (100%)</span>`;
@@ -1445,7 +1568,7 @@ function renderCurvaPreview(data) {
           <span>${dm.count} dias - ${status}</span>
       </div>`;
   }
-  
+
   if (data.avisos && data.avisos.length > 0) {
       html += `<div style="margin-top:8px; font-size:10px; color:var(--amber); line-height:1.4">`;
       data.avisos.forEach(a => {
@@ -1453,17 +1576,96 @@ function renderCurvaPreview(data) {
       });
       html += `</div>`;
   }
-  
+
   if (data.periodo) {
       html += `<div style="margin-top:8px; font-size:11px; color:var(--text)">📅 Período: ${data.periodo.mes}/${data.periodo.ano}</div>`;
       document.getElementById('mes').value = data.periodo.mes;
       document.getElementById('ano').value = data.periodo.ano;
   }
-  
-  html += `<button type="button" class="tb on" style="width:100%; margin-top:12px; padding:6px; font-size:11px" onclick="aprovarCurva()">✓ Aprovar e Usar</button>`;
-  
+
+  // Bloco de sugestão automática (dias + horários detectados na curva).
+  _ultimaSugestao = data.sugestoes || null;
+  if(_ultimaSugestao){
+      html += _buildSugestaoCard(_ultimaSugestao);
+  }
+
+  // Se não houve ajuste, libera o cálculo direto.
+  const temAjuste = (data.avisos && data.avisos.length>0) ||
+                    Object.values(dias||{}).some(c=>c && c.meta && c.meta.ajustada);
+  if(temAjuste){
+      html += `<button type="button" class="tb on" style="width:100%; margin-top:12px; padding:6px; font-size:11px" onclick="aprovarCurva()">✓ Aprovar ajustes e usar</button>`;
+      validationOk = false;
+  }else{
+      html += `<div style="margin-top:10px;padding:7px 10px;background:var(--green-bg);border:1px solid var(--green-border);border-radius:var(--radius-sm);color:var(--green);font-size:11px;font-weight:600;text-align:center">✓ Curva pronta — clique em Calcular</div>`;
+      validationOk = true;
+  }
+
   pbox.innerHTML = html;
-  validationOk = false; // Bloqueia calcular até aprovar
+}
+
+function _buildSugestaoCard(s){
+  const tem = (s.dias_funcionamento && s.dias_funcionamento.length) ||
+              s.horario_util || s.horario_sabado || s.horario_domingo;
+  if(!tem) return '';
+  const DAY_LBL = {seg:'SEG',ter:'TER',qua:'QUA',qui:'QUI',sex:'SEX',sab:'SÁB',dom:'DOM'};
+  const diasHtml = (s.dias_funcionamento||[]).map(d=>
+    `<span style="font-family:var(--mono);font-size:10px;font-weight:700;background:var(--accent);color:#fff;padding:2px 6px;border-radius:3px;margin-right:3px">${DAY_LBL[d]||d.toUpperCase()}</span>`
+  ).join('');
+  const janela = (j, lbl) => j
+    ? `<div style="font-size:11px;color:var(--muted)">${lbl}: <b style="color:var(--text);font-family:var(--mono)">${j.abertura}–${j.fechamento}</b></div>`
+    : '';
+  return `<div style="margin-top:12px;padding:10px 12px;background:var(--accent-light);border:1px solid var(--blue-border);border-radius:var(--radius-md);display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--accent);letter-spacing:.3px;text-transform:uppercase">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+      Operação detectada na curva
+    </div>
+    ${diasHtml ? `<div>${diasHtml}</div>` : ''}
+    ${janela(s.horario_util,'Dias úteis')}
+    ${janela(s.horario_sabado,'Sábado')}
+    ${janela(s.horario_domingo,'Domingo')}
+    ${s.diferentes_horarios_fds ? `<div style="font-size:10px;color:var(--amber);margin-top:2px">⚠ Horários de FDS diferem do dia útil — marcaremos a opção.</div>` : ''}
+    <div style="display:flex;gap:6px;margin-top:4px">
+      <button type="button" class="tb on" style="flex:1;font-size:11px;padding:6px;background:var(--accent);color:#fff;border:none" onclick="aplicarSugestao()">✓ Aplicar sugestão</button>
+      <button type="button" class="tb" style="flex:0 0 auto;font-size:11px;padding:6px 12px" onclick="ignorarSugestao(this)">Ignorar</button>
+    </div>
+  </div>`;
+}
+
+function aplicarSugestao(){
+  if(!_ultimaSugestao){ return; }
+  const s = _ultimaSugestao;
+  if(Array.isArray(s.dias_funcionamento) && s.dias_funcionamento.length){
+    setActiveDays(s.dias_funcionamento);
+  }
+  if(s.horario_util){
+    document.getElementById('horario_abertura').value = s.horario_util.abertura;
+    document.getElementById('horario_fechamento').value = s.horario_util.fechamento;
+  }
+  const dif = s.diferentes_horarios_fds ||
+              (s.horario_sabado && s.horario_util &&
+               (s.horario_sabado.abertura !== s.horario_util.abertura ||
+                s.horario_sabado.fechamento !== s.horario_util.fechamento)) ||
+              (s.horario_domingo && s.horario_util &&
+               (s.horario_domingo.abertura !== s.horario_util.abertura ||
+                s.horario_domingo.fechamento !== s.horario_util.fechamento));
+  const ck = document.getElementById('hr_fds_distinto');
+  if(ck){ ck.checked = !!dif; toggleHorariosFDS(); }
+  if(s.horario_sabado){
+    document.getElementById('horario_abertura_sab').value = s.horario_sabado.abertura;
+    document.getElementById('horario_fechamento_sab').value = s.horario_sabado.fechamento;
+  }
+  if(s.horario_domingo){
+    document.getElementById('horario_abertura_dom').value = s.horario_domingo.abertura;
+    document.getElementById('horario_fechamento_dom').value = s.horario_domingo.fechamento;
+  }
+  document.getElementById('preset').value = 'custom';
+  checkIs24h();
+  toast('Dias e horários da curva aplicados. Ajuste se necessário e clique em Calcular.', {kind:'ok', title:'Sugestão aplicada'});
+}
+
+function ignorarSugestao(btn){
+  const wrap = btn.closest('div');
+  if(wrap) wrap.style.display = 'none';
 }
 
 function aprovarCurva() {
@@ -1527,7 +1729,13 @@ async function calcular(){
     const data=await resp.json();
     clearInterval(tick);document.getElementById('loading').style.display='none';
     if(data.erro)throw new Error(data.erro);
-    lastResult=data;render(data);
+    // Guarda snapshot do cálculo anterior para permitir o diff visual.
+    _prevResult = lastResult ? JSON.parse(JSON.stringify({
+      kpis: lastResult.kpis, hc_fisico: lastResult.hc_fisico, dias: lastResult.dias,
+    })) : null;
+    lastResult=data;
+    _clearDirty();
+    render(data);
   }catch(e){clearInterval(tick);document.getElementById('loading').style.display='none';alert('Erro: '+e.message);}
   finally{
     btn.disabled=false;
@@ -1539,9 +1747,8 @@ async function calcular(){
 window.addEventListener('DOMContentLoaded',()=>{
   updateFdsVisibility();
   checkIs24h();
-  // Janelas bloqueadas padrão (operação 24h típica)
-  addJanelaBloqueada('00:01','05:59');
-  addJanelaBloqueada('17:41','23:59');
+  updateShrinkTotal();
+  _wireCalcPendingDirty();
 });
 
 function fmt(n,d=1){return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d})}
@@ -1780,6 +1987,36 @@ function render(d){
     <div class="sbar-meta">${d.solver_mode} · ${d.elapsed_sec}s</div>
   </div>`;
 
+  // Diff visual vs cálculo anterior (se houver).
+  if(_prevResult && _prevResult.kpis){
+    const prev = _prevResult;
+    const aggP = aggregateFromDias(prev.dias||[]);
+    const dSla = (agg.sla - aggP.sla)*100;
+    const dHc  = (d.hc_fisico.total||0) - (prev.hc_fisico?.total||0);
+    const dVol = Math.round(agg.volume - aggP.volume);
+    const s = (n, unit='') => (n>=0?'+':'')+(typeof n==='number' && Math.abs(n)<10 ? n.toFixed(2) : fmtI(n))+unit;
+    const slaCls = dSla>0.2?'up':dSla<-0.2?'dn':'flat';
+    const hcCls  = dHc>0?'up':dHc<0?'dn':'flat';
+    el.innerHTML += `<div class="card" style="padding:10px 14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;text-transform:uppercase">vs cálculo anterior</div>
+      <div style="display:flex;gap:10px;font-size:13px">
+        <span class="kpi-trend ${slaCls}">SLA ${s(dSla,'pp')}</span>
+        <span class="kpi-trend ${hcCls}">HC ${s(dHc)}</span>
+        <span class="kpi-trend flat" style="background:var(--surface2);color:var(--muted)">Vol ${s(dVol)}</span>
+      </div>
+    </div>`;
+  }
+
+  // Banner "SLA muito acima do alvo" — sinal de overstaffing estrutural.
+  const _deltaSla = (agg.sla - k.sla_target)*100;
+  if(agg.sla >= k.sla_target && _deltaSla >= 5){
+    el.innerHTML += `<div class="alert warn">
+      <b>[OVER_SLA]</b> SLA entregue ${fmt(agg.sla*100,1)}% está ${fmt(_deltaSla,1)}pp acima do alvo ${fmt(k.sla_target*100,0)}%.
+      Indica que há HC excedente estrutural. Considere: baixar o mínimo de agentes por intervalo, apertar "overstaffing máximo",
+      ou adicionar janelas bloqueadas de entrada para evitar cobertura em horários vazios.
+    </div>`;
+  }
+
   // Alerts
   d.alertas.filter(a=>a.codigo!=='OPTIMAL').forEach(a=>{
     el.innerHTML+=`<div class="alert ${st==='infeasible'?'bad':'warn'}">
@@ -1840,12 +2077,12 @@ function render(d){
       <div class="kpi-val">${fmt(p_ab_mes)}%</div>
       <div class="kpi-sub">${abRelevant ? 'Erlang '+abMode.split('_')[1].toUpperCase()+' · ponderado por volume' : 'Erlang C — estimativa 0 (sem abandono modelado)'}</div>
     </div>
-    <div class="kpi ink">
+    <div class="kpi ink" title="HC Bruto = agentes contratados (físicos). HC Líquido = equivalente na operação após descontar pausas NR-17. Use o Bruto para contratar.">
       <div class="kpi-lbl">HC Bruto Total</div>
       <div class="kpi-val">${hcTotal}</div>
-      <div class="kpi-sub">Líq. ref: ${d.hc_liquido_ref?.total||'—'}</div>
+      <div class="kpi-sub">Líq. ref: ${d.hc_liquido_ref?.total||'—'} · ℹ passe o mouse para explicação</div>
     </div>
-    <div class="kpi blue">
+    <div class="kpi blue" title="Pausa NR-17: 10,5% em turno 6:20 (20 min em 6h20) e 16,3% em turno 8:12 (80 min em 8h12). Pondera-se pelo HC de cada pool.">
       <div class="kpi-lbl">Pausa NR-17</div>
       <div class="kpi-val">${fmt((d.pausa_nr17_pct||0)*100)}%</div>
       <div class="kpi-sub">ponderada por HC · 6:20=10,5% · 8:12=16,3%</div>
@@ -2350,11 +2587,14 @@ function renderDemandCharts(d){
 
   return `<div class="card" style="margin-top:10px">
     <div class="card-header">
-      <div class="card-title">Demanda × Escala</div>
+      <div class="card-title">Inspetor · Demanda × Escala</div>
       <div style="font-size:11px;color:var(--dim);display:flex;gap:12px">
         <span><span style="display:inline-block;width:10px;height:10px;background:#1b3a6b;opacity:.4;vertical-align:middle;margin-right:3px"></span>Demanda (HC necessário)</span>
         <span><span style="display:inline-block;width:10px;height:2px;background:var(--green);vertical-align:middle;margin-right:3px"></span>Escala gerada (cobertura)</span>
       </div>
+    </div>
+    <div style="padding:10px 16px 0;font-size:11px;color:var(--muted);line-height:1.5">
+      Curvas <b>que entraram no solver</b> (após janela de horário, redistribuição e shrinkage). Serve para conferir que o dimensionamento bate com a sua expectativa.
     </div>
     <div style="padding:10px 16px 14px">${cards}</div>
   </div>`;
@@ -2983,7 +3223,14 @@ window.runSimDelta = async function(volDelta, tmoDelta){
     else {
       row.sla = data.kpis.sla_ponderado_mes*100;
       row.hc  = data.hc_fisico.total;
-      row.tme = data.dias[0]?.tme_medio||0;
+      // TME ponderado por volume em todos os dias (fix vs pegar só dias[0]).
+      let tmeNum=0, tmeDen=0;
+      (data.dias||[]).forEach(d=>{
+        const v = Number(d.volume_total||0);
+        tmeNum += Number(d.tme_medio||0) * v;
+        tmeDen += v;
+      });
+      row.tme = tmeDen>0 ? tmeNum/tmeDen : 0;
     }
     simRenderList();
   }catch(e){
