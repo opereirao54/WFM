@@ -167,9 +167,10 @@ def parse_historico_xlsx(file_bytes: bytes) -> List[dict]:
 
 
 # ── Forecast: intraday curve ─────────────────────────────────────────
-def forecast_curva_intraday(records: List[dict], tipo_dia: str):
+def forecast_curva_intraday(records: List[dict], tipo_dia: str, window: Optional[Tuple[int, int]] = None):
     """
     Generate intraday curve (48 slots) for a day type.
+    window: Optional tuple of (start_slot, end_slot) inclusive, e.g. (16, 40) for 08:00 to 20:00.
     Returns (pesos_pct[48], fatores_tmo[48], stats_per_slot).
     """
     # Group by horario
@@ -187,9 +188,14 @@ def forecast_curva_intraday(records: List[dict], tipo_dia: str):
     fatores_tmo = []
     stats = []
 
-    for h in HORARIOS:
+    for i, h in enumerate(HORARIOS):
         vols = np.array(by_slot[h]["vols"], dtype=float)
         tmos = np.array(by_slot[h]["tmos"], dtype=float)
+
+        # Se estiver fora da janela de operação permitida, forçamos 0 (antes do IQR)
+        if window is not None and not (window[0] <= i < window[1]):
+            vols = np.array([], dtype=float)
+            tmos = np.array([], dtype=float)
 
         # Clean volume outliers
         if len(vols) >= 4:
@@ -235,7 +241,14 @@ def forecast_curva_intraday(records: List[dict], tipo_dia: str):
     if total_vol > 0:
         pesos_pct = [p / total_vol * 100 for p in pesos]
     else:
-        pesos_pct = [100.0 / 48] * 48
+        # Se zerou tudo (ex: sem funcionamento), distribui uniformemente dentro da janela ou zerado
+        if window is not None and window[1] > window[0]:
+            size = window[1] - window[0]
+            pesos_pct = [0.0] * 48
+            for i in range(window[0], window[1]):
+                pesos_pct[i] = 100.0 / size
+        else:
+            pesos_pct = [0.0] * 48
 
     # Convert TMO to factors (relative to global average)
     global_tmo = sum(p * t for p, t in zip(pesos, fatores_tmo)) / (total_vol + 1e-9)
@@ -333,44 +346,89 @@ def forecast_tmo_mensal(records: List[dict]):
 
 
 # ── Forecast: daily curve ─────────────────────────────────────────────
-def forecast_curva_diaria(records: List[dict], ano: int, mes: int):
+def forecast_curva_diaria(records: List[dict], ano: int, mes: int, dias_ativos: List[str]):
     """
-    Generate daily weight curve for target month.
+    Generate daily weight curve for target month using (weekday, ordinal) grouping.
     Returns list of DiaMes with peso_pct.
     """
-    # Average volume per day-of-week type
-    vol_by_tipo = {"Util": [], "Sabado": [], "Domingo": []}
     by_day = {}
     for r in records:
-        d = r["data"]
-        if d not in by_day:
-            by_day[d] = {"vol": 0, "tipo": r["tipo_dia"]}
-        by_day[d]["vol"] += r["volume"]
+        d_str = r["data"]
+        if d_str not in by_day:
+            d = _dt.date.fromisoformat(d_str)
+            ordinal = (d.day - 1) // 7 + 1
+            if _is_feriado(d):
+                bucket = "Feriado"
+            else:
+                bucket = (d.weekday(), ordinal)
+            by_day[d_str] = {"vol": 0, "tipo": r["tipo_dia"], "bucket": bucket, "weekday": d.weekday()}
+        by_day[d_str]["vol"] += r["volume"]
 
-    for d, info in by_day.items():
-        vol_by_tipo[info["tipo"]].append(info["vol"])
+    # Group by bucket
+    vols_by_bucket = {}
+    vols_by_weekday = {i: [] for i in range(7)}
+    for info in by_day.values():
+        b = info["bucket"]
+        v = info["vol"]
+        if b not in vols_by_bucket:
+            vols_by_bucket[b] = []
+        vols_by_bucket[b].append(v)
+        if b != "Feriado":
+            vols_by_weekday[info["weekday"]].append(v)
 
-    # Clean and average per type
-    avg_tipo = {}
-    for tipo, vols in vol_by_tipo.items():
-        if not vols:
-            avg_tipo[tipo] = 0
-            continue
+    # Clean and average per bucket
+    avg_bucket = {}
+    for b, vols in vols_by_bucket.items():
         arr = np.array(vols, dtype=float)
         if len(arr) >= 4:
             clean, *_ = remove_outliers_iqr(arr)
         else:
             clean = arr
-        avg_tipo[tipo] = float(clean.mean()) if len(clean) > 0 else 0.0
+        avg_bucket[b] = float(clean.mean()) if len(clean) > 0 else 0.0
+
+    # Also compute fallback averages for each weekday (in case a bucket is missing)
+    avg_weekday = {}
+    for wd, vols in vols_by_weekday.items():
+        arr = np.array(vols, dtype=float)
+        if len(arr) >= 4:
+            clean, *_ = remove_outliers_iqr(arr)
+        else:
+            clean = arr
+        avg_weekday[wd] = float(clean.mean()) if len(clean) > 0 else 0.0
 
     # Build target month calendar
     num_days = calendar.monthrange(ano, mes)[1]
     dias = []
     raw_weights = []
+
+    # Map for dias_ativos
+    wd_to_str = {0: "seg", 1: "ter", 2: "qua", 3: "qui", 4: "sex", 5: "sab", 6: "dom"}
+
     for d_num in range(1, num_days + 1):
         d = _dt.date(ano, mes, d_num)
         tipo = _tipo_dia(d)
-        w = avg_tipo.get(tipo, 0)
+        wd = d.weekday()
+        
+        # Check if day is active
+        str_day = wd_to_str[wd]
+        is_feriado_now = _is_feriado(d)
+        
+        if is_feriado_now and "fer" not in dias_ativos:
+            w = 0.0
+        elif not is_feriado_now and str_day not in dias_ativos:
+            w = 0.0
+        else:
+            # Predict volume
+            if is_feriado_now:
+                w = avg_bucket.get("Feriado", avg_bucket.get((6, 1), 0.0)) # Fallback to Sunday if no holiday in history
+            else:
+                ordinal = (d.day - 1) // 7 + 1
+                b = (wd, ordinal)
+                if b in avg_bucket:
+                    w = avg_bucket[b]
+                else:
+                    w = avg_weekday.get(wd, 0.0)
+        
         raw_weights.append(w)
         dias.append({"data": f"{ano}-{mes:02d}-{d_num:02d}", "tipo": tipo})
 
@@ -379,7 +437,9 @@ def forecast_curva_diaria(records: List[dict], ano: int, mes: int):
     if total > 0:
         pesos = [w / total * 100 for w in raw_weights]
     else:
-        pesos = [100.0 / num_days] * num_days
+        # Se zerou tudo (ex: dias desativados), distribuir no pouco que tem?
+        # Se total == 0, significa que nenhum dia ativo tem histórico. Deixa como 0.
+        pesos = [0.0] * num_days
 
     result = []
     for i, dia in enumerate(dias):
@@ -511,7 +571,15 @@ def generate_forecast_xlsx(
 
 
 # ── Full forecast pipeline ────────────────────────────────────────────
-def run_forecast(file_bytes: bytes, ano_alvo: int, mes_alvo: int) -> dict:
+def run_forecast(
+    file_bytes: bytes, 
+    ano_alvo: int, 
+    mes_alvo: int,
+    dias_ativos: Optional[List[str]] = None,
+    window_util: Optional[Tuple[int, int]] = None,
+    window_sab: Optional[Tuple[int, int]] = None,
+    window_dom: Optional[Tuple[int, int]] = None,
+) -> dict:
     """
     Full forecast pipeline:
     1. Parse historical data
@@ -519,22 +587,25 @@ def run_forecast(file_bytes: bytes, ano_alvo: int, mes_alvo: int) -> dict:
     3. Generate all curves
     4. Return results dict
     """
+    if dias_ativos is None:
+        dias_ativos = ["seg", "ter", "qua", "qui", "sex", "sab", "dom", "fer"]
+
     records = parse_historico_xlsx(file_bytes)
     if not records:
         raise ValueError("Nenhum dado válido encontrado no arquivo. "
                          "Verifique se a aba 'Historico' contém dados no formato correto.")
 
     # Intraday curves per day type
-    pesos_sem, fat_sem, stats_sem, tmo_sem = forecast_curva_intraday(records, "Util")
-    pesos_sab, fat_sab, stats_sab, tmo_sab = forecast_curva_intraday(records, "Sabado")
-    pesos_dom, fat_dom, stats_dom, tmo_dom = forecast_curva_intraday(records, "Domingo")
+    pesos_sem, fat_sem, stats_sem, tmo_sem = forecast_curva_intraday(records, "Util", window=window_util)
+    pesos_sab, fat_sab, stats_sab, tmo_sab = forecast_curva_intraday(records, "Sabado", window=window_sab)
+    pesos_dom, fat_dom, stats_dom, tmo_dom = forecast_curva_intraday(records, "Domingo", window=window_dom)
 
     # Monthly projections
     vol_mensal, vol_stats = forecast_volume_mensal(records)
     tmo_mensal, tmo_stats = forecast_tmo_mensal(records)
 
     # Daily curve
-    dias = forecast_curva_diaria(records, ano_alvo, mes_alvo)
+    dias = forecast_curva_diaria(records, ano_alvo, mes_alvo, dias_ativos)
 
     # Total outliers removed
     total_outliers = (

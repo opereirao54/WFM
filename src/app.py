@@ -396,15 +396,52 @@ def forecast_calcular():
     try:
         f = request.files.get("historico_excel")
         if not f or not f.filename:
-            return jsonify({"erro": "Nenhum arquivo de histórico enviado."}), 400
-        mes = int(request.form.get("mes", 5))
-        ano = int(request.form.get("ano", 2025))
-        if not (1 <= mes <= 12):
-            return jsonify({"erro": f"Mês inválido: {mes}"}), 400
-        result = run_forecast(f.read(), ano, mes)
-        # Remove internal keys before sending
-        out = {k: v for k, v in result.items() if not k.startswith("_")}
-        return jsonify(out)
+            return jsonify({"erro": "Nenhum arquivo histórico enviado."}), 400
+
+        ano_alvo = int(request.form.get("ano", 2025))
+        mes_alvo = int(request.form.get("mes", 5))
+        
+        # Dias ativos
+        dias_ativos_str = request.form.get("dias_ativos", "")
+        dias_ativos = dias_ativos_str.split(",") if dias_ativos_str else None
+        
+        # Windows
+        def parse_window(param_name):
+            val = request.form.get(param_name)
+            if not val or "-" not in val:
+                return None
+            try:
+                start_str, end_str = val.split("-")
+                def to_slot(time_str):
+                    h, m = map(int, time_str.strip().split(":"))
+                    return h * 2 + (1 if m >= 30 else 0)
+                start_slot = to_slot(start_str)
+                end_slot = to_slot(end_str)
+                return (start_slot, end_slot)
+            except Exception:
+                return None
+
+        window_util = parse_window("window_util")
+        window_sab = parse_window("window_sab")
+        window_dom = parse_window("window_dom")
+
+        res = run_forecast(
+            f.read(), 
+            ano_alvo, 
+            mes_alvo,
+            dias_ativos=dias_ativos,
+            window_util=window_util,
+            window_sab=window_sab,
+            window_dom=window_dom
+        )
+
+        # Remove _curvas and _dias from JSON response to avoid huge payload if not needed
+        # We need them if we want to show charts, but for now we keep it light.
+        # Actually, let's keep them so the frontend can display them, but delete raw tuple arrays
+        if "_curvas" in res: del res["_curvas"]
+        if "_dias" in res: del res["_dias"]
+
+        return jsonify(res)
     except Exception as e:
         import traceback
         return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
@@ -417,7 +454,32 @@ def forecast_exportar():
             return jsonify({"erro": "Nenhum arquivo de histórico enviado."}), 400
         mes = int(request.form.get("mes", 5))
         ano = int(request.form.get("ano", 2025))
-        result = run_forecast(f.read(), ano, mes)
+        
+        dias_ativos_str = request.form.get("dias_ativos", "")
+        dias_ativos = dias_ativos_str.split(",") if dias_ativos_str else None
+        
+        def parse_window(param_name):
+            val = request.form.get(param_name)
+            if not val or "-" not in val:
+                return None
+            try:
+                start_str, end_str = val.split("-")
+                def to_slot(time_str):
+                    h, m = map(int, time_str.strip().split(":"))
+                    return h * 2 + (1 if m >= 30 else 0)
+                return (to_slot(start_str), to_slot(end_str))
+            except Exception:
+                return None
+
+        window_util = parse_window("window_util")
+        window_sab = parse_window("window_sab")
+        window_dom = parse_window("window_dom")
+
+        result = run_forecast(
+            f.read(), ano, mes,
+            dias_ativos=dias_ativos,
+            window_util=window_util, window_sab=window_sab, window_dom=window_dom
+        )
         xlsx = generate_forecast_xlsx(
             result["_curvas"]["sem"], result["_curvas"]["sab"], result["_curvas"]["dom"],
             result["_dias"], result["volume_mensal"], result["tmo_mensal"],
