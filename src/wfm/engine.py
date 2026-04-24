@@ -318,6 +318,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     sched_b_sab = pools["sab"]
     sched_b_dom = pools["dom"]
     sched_a     = pools["812"]
+    solver_meta = pools.get("_meta", {}) or {}
 
     cov_b_sab   = coverage_from_schedule(sched_b_sab, "6:20", pl["6:20"], wrap=is_24h)
     cov_b_dom   = coverage_from_schedule(sched_b_dom, "6:20", pl["6:20"], wrap=is_24h)
@@ -457,6 +458,16 @@ def run_engine(inp: WFMInput) -> WFMOutput:
 
     # ── Status & alerts ───────────────────────────────────────────────
     alertas, status = [], "optimal"
+
+    # Se o MILP elevou max_horarios em operação 24h, avisamos o usuário
+    # explicitamente em vez de silenciar o override.
+    if solver_meta.get("max_horarios_override"):
+        alertas.append(Alerta("MAX_HORARIOS_AJUSTADO",
+            f"Em operação 24h, o máx. de horários de entrada foi elevado de "
+            f"{solver_meta.get('max_horarios_user')} para "
+            f"{solver_meta.get('max_horarios_efetivo')} por pool — necessário "
+            f"para cobrir o dia inteiro. Se quiser usar um valor menor, reduza "
+            f"a janela de operação (não use 24h)."))
 
     # Buracos estruturalmente causados pelas janelas de entrada:
     # um slot `i` com demanda é "inalcançável" quando nenhum slot de entrada

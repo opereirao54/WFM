@@ -1352,6 +1352,11 @@ function toast(msg, opts){
   const kind = opts.kind || 'ok'; // ok | err | warn | info
   const title = opts.title || ({ok:'Sucesso', err:'Erro', warn:'Atenção', info:'Aviso'}[kind] || '');
   const ttl   = opts.ttl  || (kind==='err' ? 6000 : 3200);
+  // Limita a pilha de toasts visíveis para não empilhar infinito.
+  const stack = document.getElementById('toast-stack');
+  if(stack){
+    while(stack.children.length >= 4){ stack.firstElementChild.remove(); }
+  }
   const icons = {
     ok:   '<svg viewBox="0 0 24 24" class="toast-ico"><path d="M20 6L9 17l-5-5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     err:  '<svg viewBox="0 0 24 24" class="toast-ico"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7v6M12 16v.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
@@ -1675,26 +1680,28 @@ function aprovarCurva() {
 }
 
 async function calcular(){
-  if(!validationOk){alert('Corrija os erros no arquivo Excel antes de calcular.');return;}
+  if(!validationOk){toast('Aprove os ajustes do Excel antes de calcular.',{kind:'warn',title:'Curva pendente'});return;}
   const activeDays=getActiveDays();
-  if(activeDays.length===0){alert('Selecione pelo menos um dia de funcionamento.');return;}
+  if(activeDays.length===0){toast('Selecione pelo menos um dia de funcionamento.',{kind:'warn'});return;}
   const btn=document.getElementById('run-btn');
   btn.disabled=true;btn.innerHTML='<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:#fff"></div> Calculando...';
   document.getElementById('empty').style.display='none';
   document.getElementById('results').style.display='none';
   document.getElementById('loading').style.display='flex';
-  const msgs=[
-    [erlangMode==='erlang_a'?'Calculando Erlang A...':'Calculando Erlang C...','Distribuindo volume por intervalo'],
-    ['Dimensionando Pool B-Sáb...','Otimizando cobertura de sábado'],
-    ['Dimensionando Pool B-Dom...','Otimizando cobertura de domingo'],
-    ['Projetando na semana...','Calculando cobertura disponível'],
-    ['Otimizando Pool A...','Preenchendo gaps dos dias úteis'],
-    ['Cortando excesso...','Removendo agentes desnecessários'],
-    ['Gerando dias do mês...','Aplicando curvas por dia'],
-    ['Consolidando...','Calculando indicadores finais'],
-  ];
-  let mi=0;const lt=document.getElementById('ltxt'),ls=document.getElementById('lsub');
-  const tick=setInterval(()=>{const m=msgs[mi++%msgs.length];lt.textContent=m[0];ls.textContent=m[1]},800);
+  // Loading honesto: contador de tempo real + mensagem estática por modo.
+  // (Antes havia mensagens falsas rotativas que não refletiam o backend.)
+  const lt = document.getElementById('ltxt'), ls = document.getElementById('lsub');
+  const modoTxt = solverMode === 'exact' ? 'Solver exato (MILP)'
+                : 'Solver heurístico';
+  const erlangTxt = erlangMode === 'erlang_a' ? 'Erlang A (com abandono)'
+                  : erlangMode === 'erlang_x' ? 'Erlang X (abandono + rechamada)'
+                  : 'Erlang C';
+  lt.textContent = `${modoTxt} · ${erlangTxt}`;
+  const _t0 = performance.now();
+  const tick = setInterval(()=>{
+    const s = (performance.now() - _t0) / 1000;
+    ls.textContent = `Processando · ${s.toFixed(1)}s decorridos…`;
+  }, 200);
   try{
     const fd=new FormData();
     const fields={volume_mes:v('volume_mes'),tmo_base:v('tmo_base'),
@@ -1736,7 +1743,7 @@ async function calcular(){
     lastResult=data;
     _clearDirty();
     render(data);
-  }catch(e){clearInterval(tick);document.getElementById('loading').style.display='none';alert('Erro: '+e.message);}
+  }catch(e){clearInterval(tick);document.getElementById('loading').style.display='none';toast(e.message,{kind:'err',title:'Erro no cálculo',ttl:7000});}
   finally{
     btn.disabled=false;
     btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> Calcular Dimensionamento';
@@ -1964,10 +1971,13 @@ function renderHero(d, agg, hcTotal, hcPico, taxaOcup){
 function render(d){
   document.getElementById('view-wrap').style.display='flex';
   switchView('res');
-  // Limpa o simulador pra forçar re-render na próxima abertura com o novo resultado
+  // Força re-render do simulador, mas PRESERVA os cenários já comparados
+  // (apenas marca que o baseline mudou).
   document.getElementById('simulator').innerHTML='';
   document.getElementById('simulator').dataset.loaded='';
-  window.simScenarios = [];
+  if(Array.isArray(window.simScenarios) && window.simScenarios.length){
+    window.simScenarios.forEach(s=>{ s._baselineStale = true; });
+  }
   const el=document.getElementById('results');el.style.display='flex';el.innerHTML='';
   const k=d.kpis;const st=d.status;
   const slaOk=k.sla_ponderado_mes>=k.sla_target-0.005;
@@ -3295,7 +3305,7 @@ function jsTME(m,u,tmo){
 }
 
 async function exportar(){
-  if(!lastResult){alert('Calcule primeiro.');return;}
+  if(!lastResult){toast('Calcule um dimensionamento primeiro.',{kind:'warn'});return;}
   try{
     const resp=await fetch('/exportar',{method:'POST',
       headers:{'Content-Type':'application/json'},body:JSON.stringify(lastResult)});
@@ -3304,7 +3314,7 @@ async function exportar(){
     const a=document.createElement('a');
     a.href=url;a.download=`wfm_${lastResult.ano}${String(lastResult.mes).padStart(2,'0')}_dimensionamento.xlsx`;
     a.click();URL.revokeObjectURL(url);
-  }catch(e){alert('Erro ao exportar: '+e.message);}
+  }catch(e){toast(e.message,{kind:'err',title:'Falha na exportação'});}
 }
 
 // ── FORECAST MODULE ───────────────────────────────────────────────────
@@ -3416,10 +3426,10 @@ function handleForecastUpload(inp){
 }
 
 async function runForecast(){
-  if(!forecastFile){ alert('Selecione o arquivo de histórico primeiro.'); return; }
+  if(!forecastFile){ toast('Envie o arquivo de histórico primeiro.',{kind:'warn'}); return; }
   const mes = parseInt(document.getElementById('fct-mes').value);
   const ano = parseInt(document.getElementById('fct-ano').value);
-  if(mes<1||mes>12){ alert('Mês inválido.'); return; }
+  if(mes<1||mes>12){ toast('Mês deve estar entre 1 e 12.',{kind:'warn'}); return; }
 
   const dias_ativos = Array.from(document.querySelectorAll('#fct-dias-ativos .day-chip.on')).map(e=>e.dataset.day).join(',');
   const window_util = document.getElementById('fct-window-util').value.trim();
@@ -3452,7 +3462,7 @@ async function runForecast(){
     forecastResult._window_dom = window_dom;
     renderForecastResults(data);
   }catch(e){
-    alert('Erro no forecast: ' + e.message);
+    toast(e.message,{kind:'err',title:'Erro no forecast',ttl:7000});
   }finally{
     document.getElementById('fct-loading').style.display = 'none';
   }
@@ -3654,7 +3664,7 @@ function renderBoxplotSVG(stats, prefix){
 
 // ── Export forecast Excel ─────────────────────────────────────────────
 async function exportForecast(){
-  if(!forecastResult || !forecastResult._file){ alert('Gere o forecast primeiro.'); return; }
+  if(!forecastResult || !forecastResult._file){ toast('Gere o forecast primeiro.',{kind:'warn'}); return; }
   try{
     const fd = new FormData();
     fd.append('historico_excel', forecastResult._file);
@@ -3674,12 +3684,12 @@ async function exportForecast(){
     a.download = `wfm_forecast_${forecastResult._ano}${String(forecastResult._mes).padStart(2,'0')}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
-  }catch(e){ alert('Erro ao exportar: ' + e.message); }
+  }catch(e){ toast(e.message,{kind:'err',title:'Falha na exportação'}); }
 }
 
 // ── Use forecast in dimensionamento ───────────────────────────────────
 async function useForecastInDim(){
-  if(!forecastResult){ alert('Gere o forecast primeiro.'); return; }
+  if(!forecastResult){ toast('Gere o forecast primeiro.',{kind:'warn'}); return; }
   const d = forecastResult;
   // Fill sidebar fields
   document.getElementById('volume_mes').value = d.volume_mensal;
@@ -3726,19 +3736,42 @@ async function useForecastInDim(){
     // Switch toggle to show the file is loaded
     toggleOrigemCurva('pronta');
     
-    alert(`Forecast aplicado com sucesso!\n\nVolume: ${fmtI(d.volume_mensal)}\nTMO: ${d.tmo_mensal}s\nPeríodo: ${d.mes_alvo}/${d.ano_alvo}\n\nAs curvas intraday e diárias foram carregadas automaticamente.\nAgora clique em "Calcular Dimensionamento" para otimizar.`);
+    toast(`Volume <b>${fmtI(d.volume_mensal)}</b> · TMO <b>${d.tmo_mensal}s</b> · Período <b>${d.mes_alvo}/${d.ano_alvo}</b> — curvas carregadas. Clique em "Calcular".`,
+      {kind:'ok', title:'Forecast aplicado', ttl:5000});
     btn.innerHTML = oldHtml;
     btn.disabled = false;
   } catch(e) {
-    alert('Erro ao carregar curvas na interface: ' + e.message);
+    toast(e.message, {kind:'err', title:'Falha ao aplicar forecast'});
   }
 }
 
 function toggleOrigemCurva(val) {
+  const prev = document.getElementById('chip-pronta').classList.contains('on') ? 'pronta'
+              : document.getElementById('chip-forecast').classList.contains('on') ? 'forecast' : null;
   document.getElementById('chip-pronta').classList.toggle('on', val==='pronta');
   document.getElementById('chip-forecast').classList.toggle('on', val==='forecast');
   document.getElementById('box-curva-pronta').style.display = (val==='pronta') ? 'block' : 'none';
   document.getElementById('box-curva-forecast').style.display = (val==='forecast') ? 'block' : 'none';
+  // Ao alternar de origem, limpar o arquivo da opção anterior para evitar
+  // que o usuário envie um upload "fantasma" no próximo cálculo.
+  if(prev && prev !== val){
+    if(prev === 'pronta' && uploadedFile){
+      uploadedFile = null;
+      const nm = document.getElementById('nm-excel');
+      if(nm){ nm.textContent = 'Nenhum arquivo selecionado'; nm.className = 'uname'; }
+      const vb = document.getElementById('val-box'); if(vb) vb.style.display='none';
+      const pb = document.getElementById('preview-curva'); if(pb) pb.style.display='none';
+      validationOk = true;
+      _updateFdsSlidersVisibility();
+    }
+    if(prev === 'forecast' && historicoFile){
+      historicoFile = null;
+      const nm = document.getElementById('nm-historico');
+      if(nm){ nm.textContent = 'Nenhum arquivo selecionado'; nm.className = 'uname'; }
+      const btn = document.getElementById('btn-forecast-quick');
+      if(btn) btn.disabled = true;
+    }
+  }
 }
 
 // ── Open forecast directly ────────────────────────────────────────────
@@ -3809,6 +3842,10 @@ async function quickForecastApply(){
     // Mantém usuário em "Gerar via Histórico", mas com arquivo já pronto
     toast(`Volume ${fmtI(data.volume_mensal)} · TMO ${data.tmo_mensal}s aplicados. Outliers removidos: <b>${data.total_outliers}</b>`,
       {kind:'ok', title:'Forecast aplicado', ttl:5000});
+    // Após aplicar, alternamos visualmente para "Prontas" — o arquivo
+    // gerado foi injetado em uploadedFile. Sem isso o usuário sai da aba
+    // e volta achando que precisa reenviar o histórico.
+    toggleOrigemCurva('pronta');
   }catch(e){
     toast(e.message, {kind:'err'});
   }finally{

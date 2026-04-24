@@ -847,6 +847,12 @@ def unified_pool_solve(
         # Turno de 6:20 cobre 38 slots; ~4 turnos sem overlap cobrem 24h.
         # Com curva não-uniforme e PL, geralmente 6-8 é o mínimo prático.
         effective_max = max(max_horarios, 8)
+    # Registra no empty dict para que o engine possa expor o override ao usuário.
+    empty["_meta"] = {
+        "max_horarios_user": int(max_horarios),
+        "max_horarios_efetivo": int(effective_max),
+        "max_horarios_override": bool(effective_max != max_horarios),
+    }
 
     for off_y, n in [(OFF_ysab, n_sab), (OFF_ydom, n_dom), (OFF_y812, n_812)]:
         for j in range(n):
@@ -921,7 +927,8 @@ def unified_pool_solve(
         sla_target, t_target, first_slot, last_slot, min_physical, wrap,
     )
 
-    return {"sab": sched_sab, "dom": sched_dom, "812": sched_812}
+    return {"sab": sched_sab, "dom": sched_dom, "812": sched_812,
+            "_meta": empty["_meta"]}
 
 
 def _unified_heuristic_fallback(
@@ -961,7 +968,11 @@ def _unified_heuristic_fallback(
         vol_util, tmo_util, sla_target, t_target, min_physical, wrap,
     ) if gap_util.max() > 0.05 else []
 
-    return {"sab": sched_sab, "dom": sched_dom, "812": sched_812}
+    return {"sab": sched_sab, "dom": sched_dom, "812": sched_812,
+            # heurístico puro não tem MILP override de max_horarios
+            "_meta": {"max_horarios_user": int(max_horarios),
+                      "max_horarios_efetivo": int(max_horarios),
+                      "max_horarios_override": False}}
 
 
 def _unified_post_trim(

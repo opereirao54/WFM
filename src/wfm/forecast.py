@@ -11,15 +11,47 @@ from .models import CurvaIntraday, DiaMes
 # ── 30-min time labels ────────────────────────────────────────────────
 HORARIOS = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]
 
-# Brazilian holidays (fixed dates) — extend as needed
+# Feriados brasileiros fixos (data fixa todo ano)
 _FERIADOS_FIXOS = {
     (1, 1), (4, 21), (5, 1), (9, 7), (10, 12), (11, 2), (11, 15), (12, 25),
 }
 
 
+def _pascoa(ano: int) -> _dt.date:
+    """Calcula a data da Páscoa no ano (algoritmo de Butcher/Meeus)."""
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    L = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * L) // 451
+    mes = (h + L - 7 * m + 114) // 31
+    dia = ((h + L - 7 * m + 114) % 31) + 1
+    return _dt.date(ano, mes, dia)
+
+
+def _feriados_moveis(ano: int) -> set:
+    """Retorna tuplas (mes, dia) dos feriados móveis: Carnaval (seg+ter),
+    Sexta-feira Santa, Páscoa, Corpus Christi."""
+    p = _pascoa(ano)
+    carn_ter = p - _dt.timedelta(days=47)  # terça de carnaval
+    carn_seg = p - _dt.timedelta(days=48)  # segunda de carnaval
+    sext_sta = p - _dt.timedelta(days=2)   # sexta-feira santa
+    corpus   = p + _dt.timedelta(days=60)  # Corpus Christi (quinta)
+    return {(d.month, d.day) for d in (carn_seg, carn_ter, sext_sta, p, corpus)}
+
+
 def _is_feriado(d: _dt.date) -> bool:
-    """Check if date is a known fixed Brazilian holiday."""
-    return (d.month, d.day) in _FERIADOS_FIXOS
+    """Verifica se a data é feriado brasileiro (fixo ou móvel do ano)."""
+    if (d.month, d.day) in _FERIADOS_FIXOS:
+        return True
+    return (d.month, d.day) in _feriados_moveis(d.year)
 
 
 def _tipo_dia(d: _dt.date) -> str:
