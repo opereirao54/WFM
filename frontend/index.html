@@ -319,12 +319,26 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 /* Results */
 #results{display:none;flex-direction:column;gap:14px}
 
-/* ── Hero card (executive summary) ───────────────────────── */
+/* Section labels — separam blocos (Resumo Executivo / Execução / Operacional) */
+.section-label{
+  font-size:var(--text-xs);font-weight:var(--weight-bold);
+  color:var(--muted);letter-spacing:1px;text-transform:uppercase;
+  padding:var(--space-4) 0 var(--space-1);margin-top:var(--space-3);
+  border-top:1px solid var(--border);display:flex;align-items:center;gap:var(--space-2)
+}
+.section-label::before{
+  content:'';width:3px;height:14px;background:var(--accent);border-radius:var(--radius-full)
+}
+.section-label:first-child{border-top:none;padding-top:0;margin-top:0}
+
+/* ── Hero card (executive summary) ─────────────────────────
+   Hierarquia: métrica primária GIGANTE (SLA delta) à esquerda,
+   sparkline + insight acompanham em proporção secundária. */
 .hero{
   background:linear-gradient(135deg,var(--surface) 0%,var(--accent-light) 100%);
   border:1px solid var(--border);border-radius:var(--radius-xl);
   padding:var(--space-6);box-shadow:var(--shadow-md);
-  display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:var(--space-6);align-items:center;
+  display:grid;grid-template-columns:1.5fr 1fr 1.2fr;gap:var(--space-6);align-items:center;
   position:relative;overflow:hidden
 }
 .hero::before{
@@ -338,8 +352,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
   letter-spacing:.8px;text-transform:uppercase
 }
 .hero-metric{
-  font-family:var(--mono);font-size:var(--text-4xl);font-weight:var(--weight-bold);
-  color:var(--text);line-height:var(--leading-tight);letter-spacing:-1.2px
+  font-family:var(--mono);font-size:52px;font-weight:var(--weight-bold);
+  color:var(--text);line-height:var(--leading-tight);letter-spacing:-1.8px
 }
 .hero-metric.ok{color:var(--green)}
 .hero-metric.warn{color:var(--amber)}
@@ -385,11 +399,12 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
   .hero-insight{grid-column:1/-1}
 }
 
-/* Status bar */
+/* Status bar — sticky no topo do main para manter contexto ao scrollar */
 .sbar{
   padding:var(--space-3) var(--space-5);border-radius:var(--radius-lg);border-left:4px solid;
   display:flex;align-items:center;justify-content:space-between;
-  font-size:var(--text-base);box-shadow:var(--shadow-xs)
+  font-size:var(--text-base);box-shadow:var(--shadow-sm);
+  position:sticky;top:0;z-index:8;backdrop-filter:blur(4px)
 }
 .sbar.optimal{background:var(--green-bg);border-color:var(--green)}
 .sbar.constrained{background:var(--amber-bg);border-color:var(--amber)}
@@ -1979,7 +1994,7 @@ function buildResumoText(d, agg, hcTotal, hcPico, taxaOcup){
     `Período: ${d.horario_abertura||'auto'}–${d.horario_fechamento||'auto'}  |  ${d.dias.length} dias`,
     ``,
     `Volume total:           ${fmtI(Math.round(agg.volume))} chamadas`,
-    `TMA médio (pond. vol):  ${fmt(agg.tmo,0)} s`,
+    `TMO médio (pond. vol):  ${fmt(agg.tmo,0)} s`,
     `NS (SLA ponderado):     ${fmt(agg.sla*100)} %`,
     `TME médio (pond. vol):  ${fmt(agg.tme,0)} s`,
     `Ocupação média (pond.): ${fmt(agg.ocupacao*100)} %`,
@@ -2216,6 +2231,7 @@ function render(d){
   }
 
   // ── Hero (executive summary) ────────────────────────────────────────
+  el.innerHTML += `<div class="section-label">Resumo Executivo</div>`;
   el.innerHTML += renderHero(d, agg, hcTotal, hcPico, taxaOcup);
 
   // Abandono mensal (ponderado por volume). Prefere o valor calculado pelo backend.
@@ -2291,7 +2307,7 @@ function render(d){
         </tr></thead>
         <tbody>
           <tr><td>Volume total</td><td>${fmtI(Math.round(agg.volume))}</td><td>chamadas</td></tr>
-          <tr><td>TMA médio</td><td>${fmt(agg.tmo,0)} s</td><td>ponderado por volume</td></tr>
+          <tr><td>TMO médio</td><td>${fmt(agg.tmo,0)} s</td><td>ponderado por volume</td></tr>
           <tr><td>NS (SLA ponderado)</td><td class="${slaOkAgg?'ok':'bad'}">${fmt(agg.sla*100)} %</td><td>NS total ÷ volume</td></tr>
           <tr><td>TME médio</td><td>${fmt(agg.tme,0)} s</td><td>ponderado por volume</td></tr>
           <tr><td>Ocupação média</td><td>${fmt(agg.ocupacao*100)} %</td><td>ponderada por volume</td></tr>
@@ -2307,6 +2323,12 @@ function render(d){
       </details>
     </div>
   </div>`;
+
+  // Calendário SLA promovido pra cima — alto valor para diretoria.
+  el.innerHTML += renderCalendar(d);
+
+  // Seção "Execução" — escala e pools
+  el.innerHTML += `<div class="section-label">Execução da Escala</div>`;
 
   // Pools
   const tot=d.hc_fisico.total||1;
@@ -2694,12 +2716,9 @@ function renderEscala(el, d) {
     </tr></tfoot></table></div>
   </div>`;
 
-  // Gráfico demanda × escala por tipo de dia
+  // Seção "Operacional" — inspetor de curva
+  el.innerHTML += `<div class="section-label">Operacional</div>`;
   el.innerHTML += renderDemandCharts(d);
-
-  // ── Análises extras ────────────────────────────────────────────────
-  // Calendário SLA
-  el.innerHTML += renderCalendar(d);
 }
 
 // ── Gráfico Demanda × Escala (SVG inline, sem libs) ─────────────────────
@@ -3092,7 +3111,7 @@ function _renderSavedSummaryCells(result){
       Math.max(1, (result.dias||[]).reduce((a,d)=>a+(d.volume_total||0),0));
   const cells = [
     {lbl:'Volume', val:fmtI(Math.round(agg.volume))},
-    {lbl:'TMA',    val:`${fmt(agg.tmo,0)}s`},
+    {lbl:'TMO',    val:`${fmt(agg.tmo,0)}s`},
     {lbl:'NS',     val:`${fmt(agg.sla*100)}%`, cls: slaOk?'ok':'bad'},
     {lbl:'PA',     val:`${fmt(p_ab)}%`},
     {lbl:'HC',     val:`${hcTot}`},
