@@ -8,7 +8,8 @@ from .models import WFMOutput
 # ── Validation ────────────────────────────────────────────────────────────
 def validate_excel(file_bytes: bytes) -> Tuple[bool, List[dict]]:
     """
-    Validate uploaded Excel.
+    Validate uploaded Excel — versão flexível.
+    Não bloqueia mais por soma ≠ 100% ou nº de linhas ≠ 48.
     Returns (is_valid, list of issues).
     Each issue: {sheet, row, col, severity, message}
     """
@@ -32,27 +33,29 @@ def validate_excel(file_bytes: bytes) -> Tuple[bool, List[dict]]:
             if row[0] is None: continue
             rows_data.append(row)
 
-        if len(rows_data) != 48:
-            issues.append({"sheet":sheet,"row":0,"col":"—","severity":"erro",
-                           "message":f"Deve ter 48 linhas de dados, encontrou {len(rows_data)}"})
+        if len(rows_data) < 1:
+            issues.append({"sheet":sheet,"row":0,"col":"—","severity":"aviso",
+                           "message":f"Aba vazia — será usada curva padrão"})
             continue
+
+        if len(rows_data) != 48:
+            issues.append({"sheet":sheet,"row":0,"col":"—","severity":"aviso",
+                           "message":f"Encontrou {len(rows_data)} linhas de 48 — intervalos faltantes serão zerados"})
 
         pesos = []
         for i, row in enumerate(rows_data, 3):
             # peso_pct
             try:
-                p = float(str(row[1]).replace(',','.')) if row[1] is not None else None
-                if p is None:
-                    issues.append({"sheet":sheet,"row":i,"col":"PESO_PCT","severity":"erro",
-                                   "message":"Célula vazia"})
-                elif p < 0:
-                    issues.append({"sheet":sheet,"row":i,"col":"PESO_PCT","severity":"erro",
-                                   "message":f"Valor negativo: {p}"})
-                else:
-                    pesos.append(p)
+                p = float(str(row[1]).replace(',','.')) if row[1] is not None else 0.0
+                if p < 0:
+                    issues.append({"sheet":sheet,"row":i,"col":"PESO_PCT","severity":"aviso",
+                                   "message":f"Valor negativo: {p} — será tratado como 0"})
+                    p = 0.0
+                pesos.append(p)
             except ValueError:
-                issues.append({"sheet":sheet,"row":i,"col":"PESO_PCT","severity":"erro",
-                               "message":f"Valor não numérico: '{row[1]}'"})
+                issues.append({"sheet":sheet,"row":i,"col":"PESO_PCT","severity":"aviso",
+                               "message":f"Valor não numérico: '{row[1]}' — será tratado como 0"})
+                pesos.append(0.0)
             # fator_tmo
             try:
                 f = float(str(row[2]).replace(',','.')) if row[2] is not None else 1.0
@@ -65,37 +68,33 @@ def validate_excel(file_bytes: bytes) -> Tuple[bool, List[dict]]:
 
         if pesos:
             soma = sum(pesos)
-            if soma < 98 or soma > 102:
-                issues.append({"sheet":sheet,"row":0,"col":"PESO_PCT","severity":"erro",
-                               "message":f"Soma dos pesos = {soma:.2f}% (deve ser 100%)"})
-            elif soma < 99 or soma > 101:
+            if abs(soma - 100.0) > 0.01 and soma > 0:
                 issues.append({"sheet":sheet,"row":0,"col":"PESO_PCT","severity":"aviso",
-                               "message":f"Soma dos pesos = {soma:.2f}% (idealmente exatamente 100%)"})
+                               "message":f"Soma dos pesos = {soma:.2f}% — será normalizada para 100%"})
+            elif soma <= 0:
+                issues.append({"sheet":sheet,"row":0,"col":"PESO_PCT","severity":"aviso",
+                               "message":f"Soma dos pesos = 0 — aba será tratada como curva zerada"})
 
     # Curva_Dias (optional)
     if "Curva_Dias" in wb.sheetnames:
         ws = wb["Curva_Dias"]
-        tipos_validos = {"Util","Sabado","Domingo"}
         pesos_dias = []
         for i, row in enumerate(ws.iter_rows(min_row=3, values_only=True), 3):
             if row[0] is None: continue
-            if str(row[1]).strip() not in tipos_validos:
-                issues.append({"sheet":"Curva_Dias","row":i,"col":"TIPO","severity":"erro",
-                               "message":f"Tipo inválido: '{row[1]}' — use Util, Sabado ou Domingo"})
             try:
                 p = float(str(row[2]).replace(',','.')) if row[2] is not None else None
                 if p is not None: pesos_dias.append(p)
             except ValueError:
-                issues.append({"sheet":"Curva_Dias","row":i,"col":"PESO_PCT","severity":"erro",
-                               "message":f"Valor não numérico: '{row[2]}'"})
+                issues.append({"sheet":"Curva_Dias","row":i,"col":"PESO_PCT","severity":"aviso",
+                               "message":f"Valor não numérico: '{row[2]}' — será tratado como 0"})
         if pesos_dias:
             soma = sum(pesos_dias)
-            if soma < 98 or soma > 102:
-                issues.append({"sheet":"Curva_Dias","row":0,"col":"PESO_PCT","severity":"erro",
-                               "message":f"Soma dos pesos dos dias = {soma:.2f}% (deve ser 100%)"})
+            if abs(soma - 100.0) > 0.01 and soma > 0:
+                issues.append({"sheet":"Curva_Dias","row":0,"col":"PESO_PCT","severity":"aviso",
+                               "message":f"Soma dos pesos dos dias = {soma:.2f}% — será normalizada para 100%"})
 
-    has_error = any(i["severity"]=="erro" for i in issues)
-    return not has_error, issues
+    # Nunca mais bloqueia — tudo é aviso agora
+    return True, issues
 
 
 # ── Export ────────────────────────────────────────────────────────────────

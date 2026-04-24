@@ -4,8 +4,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 from flask import Flask, request, jsonify, send_file
 from wfm.models import WFMInput, PausasAdicionais
 from wfm.engine import run_engine
-from wfm.demand import default_curva, get_templates_xlsx, parse_excel_upload
+from wfm.demand import default_curva, get_templates_xlsx, parse_excel_upload, preview_excel_upload
 from wfm.excel_export import validate_excel, export_resultado_xlsx
+from wfm.forecast import get_forecast_template_xlsx, run_forecast, generate_forecast_xlsx
 
 app = Flask(__name__)
 
@@ -34,7 +35,7 @@ with open(HTML_PATH, encoding="utf-8") as f:
 @app.route("/")
 def index(): return HTML
 
-@app.route("/templates")
+@app.route("/templates.xlsx")
 def templates():
     return send_file(io.BytesIO(get_templates_xlsx()),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -137,6 +138,19 @@ def detectar_periodo():
         return jsonify({})
     except Exception:
         return jsonify({})
+
+@app.route("/curva/preview", methods=["POST"])
+def curva_preview():
+    """Parse flexível do Excel e retorna preview com ajustes para aprovação."""
+    try:
+        f = request.files.get("curvas_excel")
+        if not f or not f.filename:
+            return jsonify({"erro": "Nenhum arquivo enviado."}), 400
+        result = preview_excel_upload(f.read())
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
 
 
 @app.route("/calcular", methods=["POST"])
@@ -370,6 +384,54 @@ def saved_delete():
         return jsonify({"erro": str(e)}), 500
 
 
+# ── Forecast endpoints ────────────────────────────────────────────────
+@app.route("/forecast/template.xlsx")
+def forecast_template():
+    return send_file(io.BytesIO(get_forecast_template_xlsx()),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        download_name="wfm_forecast_template.xlsx", as_attachment=True)
+
+@app.route("/forecast/calcular", methods=["POST"])
+def forecast_calcular():
+    try:
+        f = request.files.get("historico_excel")
+        if not f or not f.filename:
+            return jsonify({"erro": "Nenhum arquivo de histórico enviado."}), 400
+        mes = int(request.form.get("mes", 5))
+        ano = int(request.form.get("ano", 2025))
+        if not (1 <= mes <= 12):
+            return jsonify({"erro": f"Mês inválido: {mes}"}), 400
+        result = run_forecast(f.read(), ano, mes)
+        # Remove internal keys before sending
+        out = {k: v for k, v in result.items() if not k.startswith("_")}
+        return jsonify(out)
+    except Exception as e:
+        import traceback
+        return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
+
+@app.route("/forecast/exportar", methods=["POST"])
+def forecast_exportar():
+    try:
+        f = request.files.get("historico_excel")
+        if not f or not f.filename:
+            return jsonify({"erro": "Nenhum arquivo de histórico enviado."}), 400
+        mes = int(request.form.get("mes", 5))
+        ano = int(request.form.get("ano", 2025))
+        result = run_forecast(f.read(), ano, mes)
+        xlsx = generate_forecast_xlsx(
+            result["_curvas"]["sem"], result["_curvas"]["sab"], result["_curvas"]["dom"],
+            result["_dias"], result["volume_mensal"], result["tmo_mensal"],
+            result["_stats"]["sem"], result["_stats"]["sab"], result["_stats"]["dom"],
+        )
+        fname = f"wfm_forecast_{ano}{mes:02d}.xlsx"
+        return send_file(io.BytesIO(xlsx),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            download_name=fname, as_attachment=True)
+    except Exception as e:
+        import traceback
+        return jsonify({"erro": str(e), "trace": traceback.format_exc()}), 500
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="WFM Engine API Server")
@@ -379,6 +441,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     print("\n" + "="*50)
-    print(f"  WFM ENGINE  →  http://{args.host}:{args.port}")
+    print(f"  WFM ENGINE  ->  http://{args.host}:{args.port}")
     print("="*50 + "\n")
     app.run(debug=args.debug, host=args.host, port=args.port)

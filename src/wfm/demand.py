@@ -235,26 +235,78 @@ def get_templates_xlsx() -> bytes:
     return buf.getvalue()
 
 # ── Parse uploaded Excel ──────────────────────────────────────────────────
+def _parse_curva_flexible(ws, sheet_name: str):
+    """
+    Parse flexível de uma aba de curva intraday.
+    Aceita menos de 48 linhas, células vazias (tratadas como 0),
+    e normaliza automaticamente para 100%.
+    Returns (CurvaIntraday, meta_dict).
+    meta_dict = {
+        "encontrados": int,          # quantas linhas de dados encontrou
+        "soma_original": float,      # soma dos pesos antes de normalizar
+        "ajustada": bool,            # True se normalizou
+        "intervalos_zerados": int,   # quantos intervalos ficaram com peso 0
+    }
+    """
+    # Map horário → index para posicionar valores corretamente
+    slot_map = {f"{h:02d}:{m:02d}": i for i, (h, m) in
+                enumerate((h, m) for h in range(24) for m in (0, 30))}
+    pesos  = [0.0] * 48
+    fatores = [1.0] * 48
+    found = 0
+    for row in ws.iter_rows(min_row=3, values_only=True):
+        if row[0] is None:
+            continue
+        horario = str(row[0]).strip()
+        idx = slot_map.get(horario)
+        if idx is None:
+            # Tenta posicional (linhas 3..50 → índices 0..47)
+            idx = found if found < 48 else None
+        if idx is None or idx >= 48:
+            continue
+        try:
+            p = float(str(row[1]).replace(',', '.')) if row[1] is not None else 0.0
+        except (ValueError, TypeError):
+            p = 0.0
+        try:
+            f = float(str(row[2]).replace(',', '.')) if row[2] is not None else 1.0
+        except (ValueError, TypeError):
+            f = 1.0
+        pesos[idx] = max(p, 0.0)
+        fatores[idx] = f
+        found += 1
+
+    soma_original = sum(pesos)
+    ajustada = False
+
+    # Normalizar para 100% se a soma não for zero
+    if soma_original > 0 and abs(soma_original - 100.0) > 0.01:
+        pesos = [p / soma_original * 100 for p in pesos]
+        ajustada = True
+    elif soma_original <= 0:
+        # Tudo zero → manter zerado
+        pass
+
+    intervalos_zerados = sum(1 for p in pesos if p <= 0.001)
+
+    meta = {
+        "nome": sheet_name,
+        "encontrados": found,
+        "soma_original": round(soma_original, 4),
+        "ajustada": ajustada,
+        "intervalos_zerados": intervalos_zerados,
+    }
+    return CurvaIntraday(pesos=pesos, fatores_tmo=fatores), meta
+
+
 def parse_curva_xlsx(wb, sheet_name: str) -> CurvaIntraday:
-    import openpyxl
+    """Parse curva — versão flexível (aceita parcial, normaliza)."""
     if sheet_name not in wb.sheetnames:
         raise ValueError(f"Aba '{sheet_name}' não encontrada no arquivo.")
     ws = wb[sheet_name]
-    pesos, fatores = [], []
-    for row in ws.iter_rows(min_row=3, values_only=True):
-        if row[0] is None: continue
-        try:
-            p = float(str(row[1]).replace(',', '.')) if row[1] is not None else 0.0
-            f = float(str(row[2]).replace(',', '.')) if row[2] is not None else 1.0
-            pesos.append(p)
-            fatores.append(f)
-        except (ValueError, TypeError):
-            continue
-    if len(pesos) != 48:
-        raise ValueError(f"Aba '{sheet_name}' deve ter 48 linhas de dados, encontrou {len(pesos)}.")
-    s = sum(pesos) or 1
-    pesos = [p/s*100 for p in pesos]
-    return CurvaIntraday(pesos=pesos, fatores_tmo=fatores)
+    curva, _meta = _parse_curva_flexible(ws, sheet_name)
+    return curva
+
 
 def parse_dias_xlsx(wb) -> List[DiaMes]:
     """Read dias. TIPO derived from calendar, ignores what user typed."""
@@ -291,6 +343,75 @@ def extract_mes_ano_from_xlsx(wb):
         except (ValueError, TypeError):
             continue
     return None
+
+
+def preview_excel_upload(file_bytes: bytes) -> dict:
+    """
+    Parse flexível do Excel e retorna preview com metadados de ajuste.
+    Retorna dict com:
+      curvas: {semana: {pesos, fatores_tmo, meta}, sabado: ..., domingo: ...}
+      dias: [{data, tipo, peso_pct}, ...]
+      dias_meta: {soma_original, ajustada, count}
+      periodo: {mes, ano} ou None
+      avisos: [str, ...]
+    """
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    avisos = []
+    curvas = {}
+
+    sheet_map = {
+        "semana":  "Curva_Semana",
+        "sabado":  "Curva_Sabado",
+        "domingo": "Curva_Domingo",
+    }
+    for key, sheet_name in sheet_map.items():
+        if sheet_name in wb.sheetnames:
+            curva, meta = _parse_curva_flexible(wb[sheet_name], sheet_name)
+            curvas[key] = {
+                "pesos": [round(p, 4) for p in curva.pesos],
+                "fatores_tmo": [round(f, 4) for f in curva.fatores_tmo],
+                "meta": meta,
+            }
+            if meta["ajustada"]:
+                avisos.append(f"{sheet_name}: soma original {meta['soma_original']:.1f}% → normalizada para 100%")
+            if meta["encontrados"] < 48:
+                avisos.append(f"{sheet_name}: {meta['encontrados']} intervalos preenchidos de 48 — restantes zerados")
+        else:
+            curvas[key] = None
+            avisos.append(f"{sheet_name}: aba não encontrada — será usada curva zerada/padrão")
+
+    # Dias
+    dias_raw = parse_dias_xlsx(wb)
+    dias_out = [{"data": d.data, "tipo": d.tipo, "peso_pct": round(d.peso_pct, 4)} for d in dias_raw]
+    dias_meta = None
+    if dias_raw:
+        soma_dias = sum(d.peso_pct for d in dias_raw)
+        dias_meta = {
+            "soma_original": round(soma_dias, 4),
+            "ajustada": abs(soma_dias - 100.0) > 0.01 and soma_dias > 0,
+            "count": len(dias_raw),
+        }
+        if dias_meta["ajustada"]:
+            # Normalizar para 100%
+            for d in dias_out:
+                d["peso_pct"] = round(d["peso_pct"] / soma_dias * 100, 4)
+            avisos.append(f"Curva_Dias: soma original {soma_dias:.1f}% → normalizada para 100%")
+
+    # Período
+    periodo = None
+    result = extract_mes_ano_from_xlsx(wb)
+    if result:
+        periodo = {"mes": result[0], "ano": result[1]}
+
+    return {
+        "curvas": curvas,
+        "dias": dias_out,
+        "dias_meta": dias_meta,
+        "periodo": periodo,
+        "avisos": avisos,
+    }
+
 
 def parse_excel_upload(file_bytes: bytes):
     """Parse all sheets from uploaded Excel. Returns (curva_sem, curva_sab, curva_dom, dias)."""
