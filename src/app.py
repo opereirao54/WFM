@@ -89,6 +89,7 @@ def _rebuild_output(data):
             fila_media=d["fila_media"]/100,
             intervalos_ok_pct=d["intervalos_ok_pct"]/100,
             status_sla=d["status_sla"], intervalos=ivs,
+            p_abandon_medio=d.get("p_abandon_medio",0)/100,
         ))
     k = data.get("kpis",{})
     return WFMOutput(
@@ -119,6 +120,7 @@ def _rebuild_output(data):
         horario_abertura=data.get("horario_abertura",""),
         horario_fechamento=data.get("horario_fechamento",""),
         pausa_nr17_pct=data.get("pausa_nr17_pct",0),
+        p_abandon_mes=k.get("p_abandon_mes",0),
         demanda_curves=data.get("demanda_curves",{}),
         cobertura_curves=data.get("cobertura_curves",{}),
     )
@@ -192,6 +194,10 @@ def calcular():
             retry_rate           = float(fv("retry_rate", 0.30)),
             horario_abertura     = fv("horario_abertura", "").strip(),
             horario_fechamento   = fv("horario_fechamento", "").strip(),
+            horario_abertura_sab   = fv("horario_abertura_sab", "").strip(),
+            horario_fechamento_sab = fv("horario_fechamento_sab", "").strip(),
+            horario_abertura_dom   = fv("horario_abertura_dom", "").strip(),
+            horario_fechamento_dom = fv("horario_fechamento_dom", "").strip(),
             janela_entrada_inicio = fv("janela_entrada_inicio", "").strip(),
             janela_entrada_fim    = fv("janela_entrada_fim", "").strip(),
             janelas_bloqueadas    = [s.strip() for s in
@@ -239,6 +245,7 @@ def calcular():
                 "volume_total_mes":      out.volume_total_mes,
                 "intervalos_ok_pct":     round(out.intervalos_ok_pct,4) if out.intervalos_ok_pct else None,
                 "interval_floor_target": out.interval_floor_target,
+                "p_abandon_mes":         round(out.p_abandon_mes, 4),
             },
             "hc_fisico":     out.hc_fisico,
             "hc_liquido_ref":out.hc_liquido_ref,
@@ -257,6 +264,7 @@ def calcular():
                 "fila_media":round(d.fila_media*100,2),
                 "intervalos_ok_pct":round(d.intervalos_ok_pct*100,2),
                 "status_sla":d.status_sla,
+                "p_abandon_medio":round(d.p_abandon_medio*100,2),
                 "intervalos":[{
                     "horario":iv.horario,"volume":iv.volume,"tmo":iv.tmo,
                     "hc_liq":iv.hc_liq,"hc_bruto":iv.hc_bruto,

@@ -65,6 +65,12 @@ class WFMInput:
     pausas: PausasAdicionais    = field(default_factory=PausasAdicionais)
     horario_abertura:     str   = ""
     horario_fechamento:   str   = ""
+    # Horários específicos de sábado/domingo (opcionais).
+    # Quando vazios, usam os mesmos horários do dia útil.
+    horario_abertura_sab:   str = ""
+    horario_fechamento_sab: str = ""
+    horario_abertura_dom:   str = ""
+    horario_fechamento_dom: str = ""
     # ── Janela de entrada permitida ──────────────────────────────────
     # Restringe o horário em que novos turnos podem começar (ex: "06:00"
     # a "17:40" numa operação 24h, impedindo entradas de madrugada ou noite).
@@ -125,6 +131,8 @@ class DiaOut:
     intervalos_ok_pct: float
     status_sla:        str
     intervalos:        List[IntervaloOut]
+    # Taxa de abandono média ponderada por volume (0..1). Relevante em Erlang A/X.
+    p_abandon_medio:   float = 0.0
 
 @dataclass
 class Turno:
@@ -164,6 +172,8 @@ class WFMOutput:
     # Pausa média ponderada entre os turnos (6:20 ~10.5%, 8:12 ~16.3%).
     # Ponderada pelo nº de HC físico em cada pool.
     pausa_nr17_pct:       float = 0.0
+    # Taxa de abandono média do mês (ponderada por volume). Relevante em Erlang A/X.
+    p_abandon_mes:        float = 0.0
     # Curvas intraday (144 slots de 10min) por tipo de dia, para gráfico demanda×escala.
     demanda_curves:       Dict[str, List[float]] = field(default_factory=dict)
     cobertura_curves:     Dict[str, List[float]] = field(default_factory=dict)

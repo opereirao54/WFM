@@ -136,7 +136,26 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     else:
         first_slot_op, last_slot_close = 0, 144
 
+    # Horários específicos por tipo de dia — se vazios, herdam do dia útil.
+    def _window_or(inp_abert, inp_fech, default_first, default_last):
+        if not inp_abert and not inp_fech:
+            return default_first, default_last
+        f = time_to_slot(inp_abert) if inp_abert else default_first
+        l = _slot_close(inp_fech) if inp_fech else default_last
+        return f, l
+
+    first_slot_sab, last_slot_sab = _window_or(
+        inp.horario_abertura_sab, inp.horario_fechamento_sab,
+        first_slot_op, last_slot_close)
+    first_slot_dom, last_slot_dom = _window_or(
+        inp.horario_abertura_dom, inp.horario_fechamento_dom,
+        first_slot_op, last_slot_close)
+
     is_24h = (first_slot_op == 0 and last_slot_close == 144)
+    # A janela "global" que o solver usa é a UNIÃO das três janelas, para
+    # permitir que turnos cubram qualquer slot onde haja demanda.
+    union_first = min(first_slot_op, first_slot_sab, first_slot_dom)
+    union_last  = max(last_slot_close, last_slot_sab, last_slot_dom)
 
     # ── Janela de entrada permitida ───────────────────────────────────
     # Máscara booleana (144,): True = slot permitido como início de turno.
@@ -238,6 +257,21 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     vol_sab_10m,  tmo_sab_10m  = build_day_curves(vol_sab_avg,  curva_sab, inp.tmo_base)
     vol_dom_10m,  tmo_dom_10m  = build_day_curves(vol_dom_avg,  curva_dom, inp.tmo_base)
 
+    # Zera volume fora da janela operacional de cada tipo de dia. Com isso
+    # a demanda Erlang e o hc mínimo ficam 0 fora da janela, mas o mesmo
+    # arquivo de curva pode ser reutilizado entre util/sab/dom com janelas
+    # diferentes (ex.: util 08-20, sáb 08-14).
+    def _zero_outside(arr_v, arr_t, fs, ls):
+        if fs == 0 and ls == 144:
+            return arr_v, arr_t
+        av = arr_v.copy(); at = arr_t.copy()
+        av[:fs] = 0.0; av[ls:] = 0.0
+        return av, at
+
+    vol_util_10m, tmo_util_10m = _zero_outside(vol_util_10m, tmo_util_10m, first_slot_op, last_slot_close)
+    vol_sab_10m,  tmo_sab_10m  = _zero_outside(vol_sab_10m,  tmo_sab_10m,  first_slot_sab, last_slot_sab)
+    vol_dom_10m,  tmo_dom_10m  = _zero_outside(vol_dom_10m,  tmo_dom_10m,  first_slot_dom, last_slot_dom)
+
     # ── Erlang curves ─────────────────────────────────────────────────
     hc_util, _, _ = erlang_curve_day(vol_util_10m, tmo_util_10m, inp.tempo_target,
                                       inp.sla_target, _min_hc, emode, patience, retry_rate)
@@ -267,7 +301,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         vol_sab_10m,  tmo_sab_10m,
         vol_dom_10m,  tmo_dom_10m,
         inp.sla_target, inp.tempo_target,
-        first_slot_op, last_slot_close,
+        union_first, union_last,
         milp_time_limit  = milp_limit,
         mip_rel_gap      = 0.02,
         min_physical     = _min_hc,
@@ -321,6 +355,11 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     cov_phys_map = {"Util": cov_phys_weekday, "Sabado": cov_phys_saturday, "Domingo": cov_phys_sunday}
     cov_nr17_map = {"Util": cov_nr17_weekday, "Sabado": cov_nr17_saturday, "Domingo": cov_nr17_sunday}
     curva_map    = {"Util": curva_sem,        "Sabado": curva_sab,         "Domingo": curva_dom}
+    window_map   = {
+        "Util":    (first_slot_op, last_slot_close),
+        "Sabado":  (first_slot_sab, last_slot_sab),
+        "Domingo": (first_slot_dom, last_slot_dom),
+    }
     dias_out: List[DiaOut] = []
 
     all_sla_num = all_vol = all_ns = 0.0
@@ -333,11 +372,14 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         cov_10m       = cov_map[dia.tipo]
         cov_phys_10m  = cov_phys_map[dia.tipo]
         cov_nr17_10m  = cov_nr17_map[dia.tipo]
+        fs_d, ls_d    = window_map[dia.tipo]
+        # Zera volume fora da janela do tipo de dia
+        vol_10m, tmo_10m = _zero_outside(vol_10m, tmo_10m, fs_d, ls_d)
 
         intervalos = compute_day_indicators(
             vol_10m, tmo_10m, cov_10m,
             inp.tempo_target, inp.sla_target,
-            first_slot_op, last_slot_close, pl["8:12"],
+            fs_d, ls_d, pl["8:12"],
             emode, patience,
             cov_phys_10m=cov_phys_10m, cov_nr17_10m=cov_nr17_10m,
             retry_rate=retry_rate,
@@ -356,6 +398,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         occ_med   = sum(iv.volume * iv.ocupacao  for iv in intervalos) / (vol_total + 1e-9)
         fila_med  = sum(iv.volume * iv.fila_pw   for iv in intervalos) / (vol_total + 1e-9)
         tmo_med   = sum(iv.volume * iv.tmo       for iv in intervalos) / (vol_total + 1e-9)
+        p_ab_med  = sum(iv.volume * iv.p_abandon for iv in intervalos) / (vol_total + 1e-9)
         hc_liq_max   = round(max((iv.hc_liq   for iv in intervalos), default=0.0), 2)
         hc_bruto_max = round(max((iv.hc_bruto for iv in intervalos), default=0.0), 2)
         ok_count  = sum(1 for iv in intervalos if iv.sla_pct >= inp.sla_target)
@@ -377,11 +420,15 @@ def run_engine(inp: WFMInput) -> WFMOutput:
             intervalos_ok_pct=round(ok_count/(len(intervalos)+1e-9),4),
             status_sla="ok" if sla_pond >= inp.sla_target else "abaixo",
             intervalos=intervalos,
+            p_abandon_medio=round(p_ab_med, 4),
         ))
 
     # ── Monthly KPIs ──────────────────────────────────────────────────
     sla_mes   = all_sla_num / (all_vol + 1e-9)
     floor_pct = all_iv_ok  / (all_iv_tot + 1e-9) if all_iv_tot else 0
+    # Abandono mensal (ponderado por volume dos intervalos)
+    _ab_num = sum(d.volume_total * d.p_abandon_medio for d in dias_out)
+    p_abandon_mes = _ab_num / (all_vol + 1e-9)
 
     def _ov(tipo, cov_curve):
         typed = [d for d in dias_out if d.tipo == tipo]
@@ -413,8 +460,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
     # independe do solver ter overstaffing/undercover.
     if entry_allowed_mask is not None:
         from .solver import valid_slots as _vs, coverage_mask as _cm
-        allowed_620 = _vs("6:20", first_slot_op, last_slot_close, is_24h, entry_allowed_mask)
-        allowed_812 = _vs("8:12", first_slot_op, last_slot_close, is_24h, entry_allowed_mask)
+        allowed_620 = _vs("6:20", union_first, union_last, is_24h, entry_allowed_mask)
+        allowed_812 = _vs("8:12", union_first, union_last, is_24h, entry_allowed_mask)
         reachable = np.zeros(INTERVALS_PER_DAY, dtype=bool)
         for s in allowed_620:
             reachable |= _cm("6:20", s, is_24h)
@@ -425,8 +472,8 @@ def run_engine(inp: WFMInput) -> WFMOutput:
         if sab_dias: demand_any |= (hc_sab > 0.5)
         if dom_dias: demand_any |= (hc_dom > 0.5)
         if not is_24h:
-            demand_any[:first_slot_op] = False
-            demand_any[last_slot_close:] = False
+            demand_any[:union_first] = False
+            demand_any[union_last:] = False
 
         unreachable = demand_any & ~reachable
         total_gap = int(unreachable.sum())
@@ -511,6 +558,7 @@ def run_engine(inp: WFMInput) -> WFMOutput:
               + (1.0 - pl_base["8:12"]) * n_812)
              / max(1, n_sab + n_dom + n_812)), 4
         ),
+        p_abandon_mes=round(p_abandon_mes, 4),
         demanda_curves={
             "util":    [round(float(x), 2) for x in hc_util],
             "sabado":  [round(float(x), 2) for x in hc_sab],
