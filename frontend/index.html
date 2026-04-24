@@ -90,7 +90,15 @@ header{
   border:1px solid var(--blue-border);border-radius:var(--radius-xs);
   color:var(--blue);font-weight:var(--weight-medium);letter-spacing:.3px
 }
-.hstatus{margin-left:auto;display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-base);color:var(--muted)}
+.hbtn-help{
+  margin-left:auto;display:inline-flex;align-items:center;gap:6px;
+  padding:6px 12px;background:var(--surface);border:1px solid var(--border2);
+  border-radius:var(--radius-md);color:var(--accent);font-size:var(--text-sm);
+  font-weight:var(--weight-semibold);cursor:pointer;font-family:var(--sans);
+  transition:all var(--dur-base) var(--ease)
+}
+.hbtn-help:hover{background:var(--accent-light);border-color:var(--accent2)}
+.hstatus{display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-base);color:var(--muted)}
 .dot{width:8px;height:8px;border-radius:var(--radius-full);background:var(--green);
   box-shadow:0 0 0 3px var(--green-bg);animation:pulse 2.5s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -862,6 +870,14 @@ table.mt tr.trow td:first-child,table.mt tr.trow td:nth-child(2),table.mt tr.tro
   </div>
   <div class="hbadge">ERLANG C/A/X</div>
   <div class="hbadge">SOLVER</div>
+  <button class="hbtn-help" onclick="abrirGlossario()" title="Glossário de termos (HC Bruto, TMO, Shrinkage, etc.)" aria-label="Abrir glossário">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.5 9a2.5 2.5 0 015 0c0 2-2.5 2-2.5 4"/>
+      <circle cx="12" cy="17" r=".5" fill="currentColor"/>
+    </svg>
+    <span>Glossário</span>
+  </button>
   <div class="hstatus"><div class="dot"></div>Sistema operacional</div>
 </header>
 
@@ -2183,11 +2199,23 @@ function render(d){
     <div class="sbar-meta">${d.solver_mode} · ${d.elapsed_sec}s</div>
   </div>`;
 
-  // Alerts
+  // Alerts: mensagem de negócio em destaque, código técnico em linha
+  // pequena abaixo.
+  const _ALERT_TITLES = {
+    MAX_HORARIOS_AJUSTADO: 'Máx. horários de entrada foi elevado',
+    BURACO_POR_JANELA:     'Janelas de entrada estão deixando demanda sem cobertura',
+    SLA_INSUFICIENTE:      'SLA do mês ficou abaixo do alvo',
+    OVERSTAFFING_EXCEDIDO: 'Escala ficou com folga acima do limite',
+    FLOOR_NAO_ATINGIVEL:   'Piso de intervalos no SLA não foi atingido',
+  };
   d.alertas.filter(a=>a.codigo!=='OPTIMAL').forEach(a=>{
-    el.innerHTML+=`<div class="alert ${st==='infeasible'?'bad':'warn'}">
-      <b>[${a.codigo}]</b> ${a.mensagem}
-      ${a.hc_adicional_necessario?`<br>→ Seriam necessários <b>+${a.hc_adicional_necessario} HC físicos</b> adicionais.`:''}
+    const titulo = _ALERT_TITLES[a.codigo] || a.codigo.replace(/_/g,' ').toLowerCase();
+    const kind = (st==='infeasible' || a.codigo==='SLA_INSUFICIENTE') ? 'bad' : 'warn';
+    el.innerHTML+=`<div class="alert ${kind}">
+      <div style="font-weight:700;margin-bottom:3px">${titulo}</div>
+      <div style="line-height:1.55">${a.mensagem}</div>
+      ${a.hc_adicional_necessario?`<div style="margin-top:4px">→ Seriam necessários <b>+${a.hc_adicional_necessario} HC físicos</b> adicionais.</div>`:''}
+      <div style="font-size:10px;color:var(--dim);margin-top:4px;font-family:var(--mono);letter-spacing:.3px">código: ${a.codigo}</div>
     </div>`;
   });
 
@@ -2334,9 +2362,9 @@ function render(d){
   const tot=d.hc_fisico.total||1;
   const pl=d.pl_efetivo||{};
   const pools=[
-    {key:'pool_b_sab',cls:'bs',name:'6:20 — Sábado',sub:'folga Dom · cobre Sab+Util',plK:'6:20'},
-    {key:'pool_b_dom',cls:'bd',name:'6:20 — Domingo',sub:'folga Sab · cobre Dom+Util',plK:'6:20'},
-    {key:'pool_812',cls:'a', name:'8:12 — CLT',sub:'folga Sab+Dom · só Util',plK:'8:12'},
+    {key:'pool_b_sab',cls:'bs',name:'6:20 · Trabalha aos Sábados',sub:'Folga aos domingos',plK:'6:20'},
+    {key:'pool_b_dom',cls:'bd',name:'6:20 · Trabalha aos Domingos',sub:'Folga aos sábados',plK:'6:20'},
+    {key:'pool_812',cls:'a', name:'8:12 · CLT 5×2',sub:'Só dias úteis',plK:'8:12'},
   ];
   let ph='<div class="prow">';
   pools.forEach(p=>{
@@ -3968,6 +3996,63 @@ function toggleOrigemCurva(val) {
       if(btn) btn.disabled = true;
     }
   }
+}
+
+// ── Glossário ────────────────────────────────────────────────────────
+function abrirGlossario(){
+  const termos = [
+    {t:'Volume', d:'Total de chamadas/contatos no período analisado.'},
+    {t:'TMO (Tempo Médio de Operação)', d:'Duração média de cada atendimento, em segundos. Inclui conversa + pós-atendimento. Também chamado de TMA.'},
+    {t:'SLA (Service Level)', d:'% de chamadas atendidas dentro do tempo alvo. Ex.: "80% em 20s" = pelo menos 80% dos clientes aguardam no máximo 20s.'},
+    {t:'Tempo alvo de atendimento', d:'Janela que define o SLA. Chamadas atendidas dentro desse tempo contam como "dentro do nível de serviço".'},
+    {t:'NS (Nível de Serviço)', d:'Número de chamadas que foram atendidas dentro do alvo. NS ÷ Volume = SLA%.'},
+    {t:'TME (Tempo Médio de Espera)', d:'Segundos médios que o cliente aguarda antes de ser atendido.'},
+    {t:'HC Líquido', d:'Agentes efetivos necessários em fila, descontando shrinkage e NR-17. É o que o modelo Erlang "vê".'},
+    {t:'HC Bruto', d:'Agentes físicos a contratar/escalar. Inclui a folga para pausas (NR-17) e absenteísmo/férias/etc. Use este número para dimensionar equipe.'},
+    {t:'PL efetivo (Productive Labour)', d:'Fator que converte HC bruto → HC líquido. Ex.: PL=0.75 → 1 agente logado produz 0.75 de fila efetiva (25% vai para pausas).'},
+    {t:'NR-17 (Norma Regulamentadora 17)', d:'Pausas obrigatórias por jornada no Brasil. 20 min em turno 6:20 (~10,5%); 80 min em turno 8:12 (~16,3%).'},
+    {t:'Shrinkage', d:'% de horas perdidas com absenteísmo, férias, treinamento, reuniões e aderência. É aplicado em cima do PL base.'},
+    {t:'Ocupação', d:'% do tempo que o agente está ocupado (conversando ou em ACW). Acima de 85% tende a derrubar qualidade.'},
+    {t:'Abandono (PA)', d:'% de clientes que desligam antes de serem atendidos. Relevante em modelos Erlang A/X — em Erlang C assumimos que ninguém desiste.'},
+    {t:'Erlang C', d:'Modelo clássico de fila M/M/c. Assume fila infinita e nenhum abandono.'},
+    {t:'Erlang A', d:'Erlang C + abandono (cliente desiste após "tempo de paciência"). Mais realista para SAC.'},
+    {t:'Erlang X', d:'Erlang A + rechamada (parte de quem abandona, liga de novo). Para cobrança e cenários com alto retrial.'},
+    {t:'Turno 6:20', d:'Jornada de 6h20min (CLT). 20 min de pausa NR-17. Cobre 38 slots de 10min.'},
+    {t:'Turno 8:12', d:'Jornada de 8h12min (CLT). 80 min de pausa NR-17. Cobre 49 slots de 10min.'},
+    {t:'Janela de entrada', d:'Faixa de horários em que um turno pode começar. Pode ser restringida para evitar entradas em madrugada/noite.'},
+    {t:'Overstaffing', d:'% em que a escala fornece HC acima do necessário no pico. Ideal: próximo de zero mantendo SLA no alvo.'},
+    {t:'Pool', d:'Grupo de agentes com mesma regra de folga. Ex.: pool B-Sáb cobre Seg-Sex+Sáb (folga Dom); pool B-Dom cobre Seg-Sex+Dom (folga Sáb); pool 8:12 cobre só Seg-Sex.'},
+  ];
+  const items = termos.map(x=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:3px">${x.t}</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.55">${x.d}</div>
+    </div>`).join('');
+  openModal(`
+    <div class="modal-head">
+      <div class="mico">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.5 9a2.5 2.5 0 015 0c0 2-2.5 2-2.5 4"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg>
+      </div>
+      <div>
+        <div class="modal-title">Glossário WFM</div>
+        <div class="modal-sub">${termos.length} termos — dimensionamento e Erlang</div>
+      </div>
+    </div>
+    <div class="modal-body" style="max-height:65vh;overflow:auto">
+      <input type="search" id="gloss-filter" placeholder="Filtrar termos…" oninput="_filtrarGloss(this.value)"
+             style="width:100%;margin-bottom:8px">
+      <div id="gloss-list">${items}</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-ghost" onclick="closeModal()">Fechar</button>
+    </div>`);
+  setTimeout(()=>document.getElementById('gloss-filter')?.focus(), 60);
+}
+function _filtrarGloss(q){
+  q = (q||'').toLowerCase();
+  document.querySelectorAll('#gloss-list > div').forEach(d=>{
+    d.style.display = d.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
 }
 
 // ── Open forecast directly ────────────────────────────────────────────
