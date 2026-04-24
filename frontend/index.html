@@ -1987,6 +1987,23 @@ function render(d){
     <div class="sbar-meta">${d.solver_mode} · ${d.elapsed_sec}s</div>
   </div>`;
 
+  // Alerts
+  d.alertas.filter(a=>a.codigo!=='OPTIMAL').forEach(a=>{
+    el.innerHTML+=`<div class="alert ${st==='infeasible'?'bad':'warn'}">
+      <b>[${a.codigo}]</b> ${a.mensagem}
+      ${a.hc_adicional_necessario?`<br>→ Seriam necessários <b>+${a.hc_adicional_necessario} HC físicos</b> adicionais.`:''}
+    </div>`;
+  });
+
+  // ── Agregados derivados da tabela detalhada (fonte única de verdade) ─
+  // As cards usam esses valores para bater 1:1 com a tabela "Dimensionamento Dia a Dia"
+  const agg = aggregateFromDias(d.dias);
+  // Preserva alguns KPIs que só o backend conhece (overstaffing, target, etc.)
+  const hcTotal = d.hc_fisico.total || 0;
+  const hcPico  = agg.hcPico || 0;
+  const taxaOcup = hcPico>0 ? (hcTotal/hcPico) : 0;
+  const slaOkAgg = agg.sla >= k.sla_target - 0.005;
+
   // Diff visual vs cálculo anterior (se houver).
   if(_prevResult && _prevResult.kpis){
     const prev = _prevResult;
@@ -2016,23 +2033,6 @@ function render(d){
       ou adicionar janelas bloqueadas de entrada para evitar cobertura em horários vazios.
     </div>`;
   }
-
-  // Alerts
-  d.alertas.filter(a=>a.codigo!=='OPTIMAL').forEach(a=>{
-    el.innerHTML+=`<div class="alert ${st==='infeasible'?'bad':'warn'}">
-      <b>[${a.codigo}]</b> ${a.mensagem}
-      ${a.hc_adicional_necessario?`<br>→ Seriam necessários <b>+${a.hc_adicional_necessario} HC físicos</b> adicionais.`:''}
-    </div>`;
-  });
-
-  // ── Agregados derivados da tabela detalhada (fonte única de verdade) ─
-  // As cards usam esses valores para bater 1:1 com a tabela "Dimensionamento Dia a Dia"
-  const agg = aggregateFromDias(d.dias);
-  // Preserva alguns KPIs que só o backend conhece (overstaffing, target, etc.)
-  const hcTotal = d.hc_fisico.total || 0;
-  const hcPico  = agg.hcPico || 0;
-  const taxaOcup = hcPico>0 ? (hcTotal/hcPico) : 0;
-  const slaOkAgg = agg.sla >= k.sla_target - 0.005;
 
   // ── Hero (executive summary) ────────────────────────────────────────
   el.innerHTML += renderHero(d, agg, hcTotal, hcPico, taxaOcup);
